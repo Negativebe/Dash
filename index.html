@@ -45,6 +45,7 @@ header .spacer{flex:1}
 .badge.analyst{color:#fff;background:#7c3aed;border-color:#7c3aed}
 .badge.spv{color:#06283d;background:var(--acc2);border-color:var(--acc2)}
 .badge.coord{color:#06283d;background:var(--warn);border-color:var(--warn)}
+.badge.host{color:#fff;background:#6366f1;border-color:#6366f1}
 #logout{background:transparent;border:1px solid var(--line);color:var(--mut);padding:7px 13px;border-radius:8px}
 #dayBtn{background:var(--acc);border:0;color:#fff;padding:7px 14px;border-radius:8px;font-weight:600}
 
@@ -288,6 +289,10 @@ small.note{color:var(--mut);font-size:11px}
             <select id="emPos" style="padding:9px 11px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;color:var(--txt)"><option>HST</option><option>HBC</option></select></div>
           <div class="f"><label style="font-size:11px;color:var(--mut)">Город</label>
             <input id="emCity" style="padding:9px 11px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;color:var(--txt)"></div>
+          <div class="f"><label style="font-size:11px;color:var(--acc2)">Логин для входа (сотрудник видит только себя)</label>
+            <input id="emLogin" placeholder="например, novikova_t" style="padding:9px 11px;background:var(--panel2);border:1px solid var(--acc2);border-radius:9px;color:var(--txt)"></div>
+          <div class="f"><label style="font-size:11px;color:var(--acc2)">Пароль</label>
+            <input id="emPass" placeholder="придумайте пароль" style="padding:9px 11px;background:var(--panel2);border:1px solid var(--acc2);border-radius:9px;color:var(--txt)"></div>
         </div>
         <button onclick="addEmp()" style="margin-top:14px;background:var(--acc);color:#fff;border:0;padding:10px 18px;border-radius:9px;font-weight:600">Добавить сотрудника</button>
         <small class="note" style="display:block;margin-top:8px">ФИО должно совпадать с полем «Пользователь» в выгрузке, иначе контакты не подтянутся.</small>
@@ -362,9 +367,9 @@ const NORM = { contactsPerDay:22, dayHoursCap:8, edccHST:460, edccHBC:800, novel
    ======================================================================== */
 const USERS = {
   "analyst":            {p:"Analyst#Jun2026",   role:"analyst", scope:"all",  label:"Аналитик"},
-  "spv.shvabauer":      {p:"Spv!Shvabauer26",   role:"spv",     scope:"all",  label:"SPV · Shvabauer Yevgeniy"},
-  "spv.yahyayev":       {p:"Spv!Yahyayev26",    role:"spv",     scope:"all",  label:"SPV · Yahyayev Ravshanjon"},
-  "spv.sagditdinov":    {p:"Spv!Sagdi26",       role:"spv",     scope:"all",  label:"SPV · Sagditdinov Alisher"},
+  "spv.shvabauer":      {p:"Spv!Shvabauer26",   role:"spv",     scope:"Shvabauer Yevgeniy",  label:"SPV · Shvabauer Yevgeniy"},
+  "spv.yahyayev":       {p:"Spv!Yahyayev26",    role:"spv",     scope:"Yahyayev Ravshanjon",  label:"SPV · Yahyayev Ravshanjon"},
+  "spv.sagditdinov":    {p:"Spv!Sagdi26",       role:"spv",     scope:"Sagditdinov Alisher",  label:"SPV · Sagditdinov Alisher"},
   "coord.fazilov":      {p:"Coord!Fazilov26",   role:"coord", scope:"Fazilov Rustam"},
   "coord.ganiyev":      {p:"Coord!Ganiyev26",   role:"coord", scope:"Ganiyev Oybek"},
   "coord.kadishev":     {p:"Coord!Kadishev26",  role:"coord", scope:"Kadishev Artem"},
@@ -729,7 +734,9 @@ let chSpv=null, chCity=null;
 
 function visibleRows(){
   let rows=ALL.slice();
+  if(SESSION.role==="spv")   rows=rows.filter(r=>r.rm===SESSION.scope);
   if(SESSION.role==="coord") rows=rows.filter(r=>r.coord===SESSION.scope);
+  if(SESSION.role==="host")  rows=rows.filter(r=>norm(r.name)===norm(SESSION.scope));
   const fl=id=>document.getElementById(id)?.value||"";
   const lvl=fl("fLevel"), spvTop=fl("fSpv"), crd=fl("fCoord"), city=fl("fCity"), pos=fl("fPos"), q=norm(fl("fSearch"));
   if(spvTop) rows=rows.filter(r=>r.rm===spvTop);
@@ -743,19 +750,26 @@ function visibleRows(){
 
 function buildFilters(){
   const wrap=document.getElementById("filters");
-  const spvTops=[...new Set(ALL.map(r=>r.rm))].sort();
-  let coords=[...new Set(ALL.map(r=>r.coord))].sort();
-  if(SESSION.role==="coord") coords=[SESSION.scope];
-  const cities=[...new Set(ALL.map(r=>r.city))].filter(Boolean).sort();
+  const role=SESSION.role;
+  // host видит только себя — фильтры не нужны
+  if(role==="host"){ wrap.innerHTML=`<div class="f"><label>Сотрудник</label><div style="padding:9px 11px;background:var(--panel);border:1px solid var(--line);border-radius:9px">${SESSION.label}</div></div>`; return; }
+  // диапазон данных по роли
+  let scopeRows=ALL.slice();
+  if(role==="spv")   scopeRows=scopeRows.filter(r=>r.rm===SESSION.scope);
+  if(role==="coord") scopeRows=scopeRows.filter(r=>r.coord===SESSION.scope);
+  const spvTops=[...new Set(scopeRows.map(r=>r.rm))].sort();
+  let coords=[...new Set(scopeRows.map(r=>r.coord))].sort();
+  const cities=[...new Set(scopeRows.map(r=>r.city))].filter(Boolean).sort();
   const opt=(arr)=>['<option value="">— все —</option>'].concat(arr.map(x=>`<option>${x}</option>`)).join("");
-  const showSpv = SESSION.role!=="coord";
+  const showSpv = role==="analyst";          // выбор SPV только у аналитика
+  const showCoord = role!=="coord";          // координатор закреплён за своей командой
   wrap.innerHTML=`
     <div class="f"><label>Уровень / должность</label>
       <select id="fLevel" onchange="render()">
         <option value="">Все уровни</option><option>HST</option><option>HBC</option>
       </select></div>
     ${showSpv?`<div class="f"><label>SPV</label><select id="fSpv" onchange="onSpvChange()">${opt(spvTops)}</select></div>`:''}
-    <div class="f"><label>Coordinator</label><select id="fCoord" onchange="render()">${opt(coords)}</select></div>
+    ${showCoord?`<div class="f"><label>Coordinator</label><select id="fCoord" onchange="render()">${opt(coords)}</select></div>`:''}
     <div class="f"><label>Город</label><select id="fCity" onchange="render()">${opt(cities)}</select></div>
     <div class="f"><label>Должность</label><select id="fPos" onchange="render()">
       <option value="">— все —</option><option>HST</option><option>HBC</option></select></div>
@@ -997,21 +1011,40 @@ function render(){
 /* ========================================================================
    9. ЛОГИН / СЕССИЯ
    ======================================================================== */
+function findHostUser(u,p){
+  // кастомные HST-логины из общей базы (создаются аналитиком при добавлении сотрудника)
+  const list=(STORE.empAdd||[]);
+  const e=list.find(x=>x.login && norm(x.login)===norm(u) && String(x.pass)===String(p));
+  if(e) return {role:"host", scope:e.name, label:"Хост · "+e.name};
+  return null;
+}
 function doLogin(){
-  const u=document.getElementById("lu").value.trim().toLowerCase();
+  const uRaw=document.getElementById("lu").value.trim();
+  const u=uRaw.toLowerCase();
   const p=document.getElementById("lp").value;
-  const rec=USERS[u];
-  if(!rec||rec.p!==p){ document.getElementById("lerr").textContent="Неверный логин или пароль"; return; }
-  SESSION={user:u,...rec};
+  let rec=USERS[u];
+  if(!rec||rec.p!==p) rec=null;
+  if(!rec){ const h=findHostUser(uRaw,p); if(h) rec=h; }
+  if(!rec){ document.getElementById("lerr").textContent="Неверный логин или пароль"; return; }
+  enterApp({user:uRaw,...rec});
+}
+function enterApp(sess){
+  SESSION=sess;
   document.getElementById("login").style.display="none";
   document.getElementById("app").style.display="block";
   const badge=document.getElementById("rolebadge");
-  badge.textContent=rec.role==="analyst"?"Аналитик":rec.role==="spv"?"SPV · все команды":"Coordinator · своя команда";
-  badge.className="badge "+rec.role;
-  document.getElementById("whoami").textContent=rec.label||u;
-  document.getElementById("menuBtn").classList.toggle("hidden", rec.role!=="analyst");
-  document.getElementById("hsub").textContent = rec.role==="coord"?`команда: ${rec.scope}`:"июнь 2026 · все команды";
+  const names={analyst:"Аналитик",spv:"SPV",coord:"Coordinator",host:"Хост"};
+  badge.textContent=names[sess.role]||sess.role; badge.className="badge "+sess.role;
+  document.getElementById("whoami").textContent=sess.label||sess.user;
+  // права: грузить/удалять/править — только аналитик
+  const isAnalyst = sess.role==="analyst";
+  document.getElementById("menuBtn").classList.toggle("hidden", !isAnalyst);
+  document.getElementById("hsub").textContent =
+    sess.role==="coord"?`команда: ${sess.scope}`:
+    sess.role==="spv"?`SPV: ${sess.scope}`:
+    sess.role==="host"?`мои результаты`:"июнь 2026 · все команды";
   buildFilters(); render();
+  startSync();
 }
 function logout(){ SESSION=null; location.reload(); }
 document.getElementById("lp").addEventListener("keydown",e=>{if(e.key==="Enter")doLogin();});
@@ -1159,16 +1192,24 @@ function addEmp(){
   const coord=document.getElementById("emCoord").value;
   const pos=document.getElementById("emPos").value;
   const city=document.getElementById("emCity").value.trim();
+  const login=document.getElementById("emLogin").value.trim();
+  const pass=document.getElementById("emPass").value;
   if(!name){ alert("Введите ФИО"); return; }
+  // проверка логина: не пересекается со встроенными и другими host-логинами
+  if(login){
+    if(USERS[login.toLowerCase()]){ alert("Такой логин уже занят системным пользователем"); return; }
+    const dup=(STORE.empAdd||[]).some(e=>norm(e.name)!==norm(name) && e.login && norm(e.login)===norm(login));
+    if(dup){ alert("Такой логин уже используется другим сотрудником"); return; }
+    if(!pass){ alert("Укажите пароль для логина"); return; }
+  }
   STORE.empAdd=STORE.empAdd||[]; STORE.empRemove=STORE.empRemove||[];
-  // если был удалён ранее — вернуть
   STORE.empRemove=STORE.empRemove.filter(n=>norm(n)!==norm(name));
-  // убрать дубль среди добавленных
   STORE.empAdd=STORE.empAdd.filter(e=>norm(e.name)!==norm(name));
-  STORE.empAdd.push({name,coord,pos,city,custom:true});
+  STORE.empAdd.push({name,coord,pos,city,custom:true, login:login||"", pass:pass||""});
   saveStore(); rebuildRoster(); render(); buildFilters(); renderEmpList();
-  document.getElementById("emName").value="";
-  logLine(`Добавлен сотрудник: ${name} (${coord}, ${pos})`,"ok");
+  ["emName","emLogin","emPass"].forEach(id=>document.getElementById(id).value="");
+  logLine(`Добавлен: ${name} (${coord}, ${pos})${login?` · логин: ${login}`:""}`,"ok");
+  if(login) alert(`Сотрудник добавлен.\nЛогин: ${login}\nПароль: ${pass}\n\nОн войдёт и увидит только свои результаты.`);
 }
 function removeEmp(nameKey){
   rebuildRoster();
@@ -1188,14 +1229,15 @@ function restoreEmp(nameKey){
 function renderEmpList(){
   rebuildRoster();
   const rows=EFF_ROSTER.slice().sort((a,b)=>a.coord.localeCompare(b.coord,"ru")||a.name.localeCompare(b.name,"ru"));
-  let html="<thead><tr><th>ФИО</th><th>Координатор</th><th>Долж.</th><th>Город</th><th></th></tr></thead><tbody>";
-  rows.forEach(r=>{const k=norm(r.name); const custom=(STORE.empAdd||[]).some(e=>norm(e.name)===k);
+  let html="<thead><tr><th>ФИО</th><th>Координатор</th><th>Долж.</th><th>Город</th><th>Логин</th><th></th></tr></thead><tbody>";
+  rows.forEach(r=>{const k=norm(r.name); const ce=(STORE.empAdd||[]).find(e=>norm(e.name)===k); const custom=!!ce;
     html+=`<tr><td>${r.name}${custom?' <span style="color:var(--acc2)">+</span>':''}</td><td>${r.coord}</td><td>${r.pos}</td><td>${r.city||""}</td>`
+      +`<td style="color:var(--acc2)">${ce&&ce.login?ce.login:"—"}</td>`
       +`<td><button onclick="removeEmp('${k.replace(/'/g,"\\'")}')" class="dclose" style="width:26px;height:26px;font-size:14px" title="удалить">×</button></td></tr>`;
   });
   // удалённые встроенные — с возможностью вернуть
   (STORE.empRemove||[]).forEach(n=>{
-    html+=`<tr style="opacity:.55"><td>${n} <span style="color:var(--bad)">(удалён)</span></td><td colspan="3"></td>`
+    html+=`<tr style="opacity:.55"><td>${n} <span style="color:var(--bad)">(удалён)</span></td><td colspan="4"></td>`
       +`<td><button onclick="restoreEmp('${norm(n).replace(/'/g,"\\'")}')" class="dclose" style="width:auto;padding:0 8px;height:26px;font-size:12px">вернуть</button></td></tr>`;
   });
   html+="</tbody>";
@@ -1294,18 +1336,11 @@ window.addEventListener("DOMContentLoaded",()=>{
   if(file2){ file2.addEventListener("change",e=>handleFiles([...e.target.files],{forceType:"hostes2",allSuccess:true})); }
 });
 
-/* старт: логин временно отключён — открываем дашборд сразу с полным доступом */
+/* старт: показываем экран входа (данные подгружаем заранее для проверки host-логинов) */
 loadStore().then(()=>{
-  SESSION={user:"analyst",role:"analyst",scope:"all",label:"Аналитик"};
-  document.getElementById("login").style.display="none";
-  document.getElementById("app").style.display="block";
-  const badge=document.getElementById("rolebadge");
-  badge.textContent="Полный доступ"; badge.className="badge analyst";
-  document.getElementById("whoami").textContent="";
-  document.getElementById("logout").classList.add("hidden");
-  document.getElementById("menuBtn").classList.remove("hidden");
-  document.getElementById("hsub").textContent="июнь 2026 · все команды";
-  buildFilters(); render();
-  startSync();
+  rebuildRoster();
+  checkConnection();           // покажет статус базы и в лог
+  document.getElementById("login").style.display="flex";
+  document.getElementById("app").style.display="none";
 });
 </script>
