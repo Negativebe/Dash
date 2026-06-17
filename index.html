@@ -314,6 +314,7 @@ small.note{color:var(--mut);font-size:11px}
           <option value="contacts">Контакты</option>
           <option value="edcc">eDCC</option>
           <option value="novelty">Новинки</option>
+          <option value="loyal">Лояльники</option>
           <option value="hours">Часы</option>
         </select>
         <button id="dayEditBtn" class="hidden" onclick="toggleDayEdit()" style="background:var(--acc2);color:#06283d;border:0;padding:8px 13px;border-radius:9px;font-weight:600">✏️ Править</button>
@@ -517,8 +518,7 @@ function startSync(){
     try{ const d=await supaGet(); if(!d) return;
       if(JSON.stringify(d)!==JSON.stringify(STORE)){
         STORE=normalizeStore(d);
-        if(typeof buildFilters==="function" && SESSION) buildFilters();
-        if(typeof render==="function") render();
+        if(typeof render==="function") render();   // фильтры НЕ трогаем, чтобы выбор не слетал
         if(typeof logLine==="function") logLine("Данные обновлены из общей базы","ok");
       }
     }catch(e){}
@@ -749,6 +749,7 @@ function visibleRows(){
 }
 
 function buildFilters(){
+  snapFilters();
   const wrap=document.getElementById("filters");
   const role=SESSION.role;
   // host видит только себя — фильтры не нужны
@@ -774,7 +775,13 @@ function buildFilters(){
     <div class="f"><label>Должность</label><select id="fPos" onchange="render()">
       <option value="">— все —</option><option>HST</option><option>HBC</option></select></div>
     <div class="f"><label>Поиск</label><input id="fSearch" placeholder="имя или координатор" oninput="render()"></div>`;
+  // восстановить ранее выбранные значения, если опции ещё существуют
+  Object.keys(_FSAVE).forEach(id=>{const el=document.getElementById(id); if(!el)return;
+    const v=_FSAVE[id]; if(v==null||v==="")return;
+    if(el.tagName==="SELECT"){ if([...el.options].some(o=>o.value===v)) el.value=v; } else el.value=v; });
 }
+let _FSAVE={};
+function snapFilters(){ ["fLevel","fSpv","fCoord","fCity","fPos","fSearch"].forEach(id=>{const el=document.getElementById(id); if(el)_FSAVE[id]=el.value;}); }
 function onSpvChange(){ // ограничить список координаторов выбранным SPV
   const spvTop=document.getElementById("fSpv").value;
   const sel=document.getElementById("fCoord");
@@ -902,7 +909,8 @@ function renderDay(){
     data:{labels:days.map(d=>d.date),datasets:[
       {type:"bar",label:"Контакты",data:days.map(d=>d.contacts),backgroundColor:"#4f8cff",order:3},
       {type:"line",label:"eDCC",data:days.map(d=>d.edcc),borderColor:"#6ee7b7",backgroundColor:"#6ee7b7",tension:.3,order:1},
-      {type:"line",label:"Новинки",data:days.map(d=>d.novelty),borderColor:"#fbbf24",backgroundColor:"#fbbf24",tension:.3,order:2}
+      {type:"line",label:"Новинки",data:days.map(d=>d.novelty),borderColor:"#fbbf24",backgroundColor:"#fbbf24",tension:.3,order:2},
+      {type:"line",label:"Лояльники",data:days.map(d=>d.loyal),borderColor:"#a78bfa",backgroundColor:"#a78bfa",tension:.3,order:1}
     ]},
     options:{plugins:{legend:{labels:{color:"#e6edf3"}}},
       scales:{x:{ticks:tick,grid:{display:false}},y:{ticks:tick,grid}}}});
@@ -936,8 +944,8 @@ function renderMatrix(){
   CONTACTS().forEach(r=>{
     const m=matchRoster(r.user); const key=m?norm(m.name):norm(r.user);
     if(!teamKeys.has(key))return; const d=r.date||"—"; dates.add(d);
-    const g=grid[key]||(grid[key]={}); const o=g[d]||(g[d]={c:0,e:0,n:0,hrs:new Set()});
-    o.c++; if(r.success)o.e++; if(r.novelty)o.n++; if(r.hour!=null && !isNaN(r.hour)) o.hrs.add(r.hour);
+    const g=grid[key]||(grid[key]={}); const o=g[d]||(g[d]={c:0,e:0,n:0,l:0,hrs:new Set()});
+    o.c++; if(r.success)o.e++; if(r.novelty)o.n++; if(r.loyal)o.l++; if(r.hour!=null && !isNaN(r.hour)) o.hrs.add(r.hour);
   });
   const dayList=[...dates].sort((a,b)=>String(a).localeCompare(String(b)));
   const DC=STORE.dayCorr||{};
@@ -947,7 +955,7 @@ function renderMatrix(){
   const effC=(key,d,o)=>{const c=DC[ck(key,d)]; return (c&&c.contacts!=null&&c.contacts!=="")?+c.contacts:(o?o.c:0);};
   const effH=(key,d,o)=>{const c=DC[ck(key,d)]; return (c&&c.hours!=null&&c.hours!=="")?+c.hours:rawHrs(o);};
   const isEd=(key,d,f)=>{const c=DC[ck(key,d)]; return c && c[f]!=null && c[f]!=="";};
-  const val=(key,d,o)=> metric==="edcc"?(o?o.e:0) : metric==="novelty"?(o?o.n:0) : metric==="hours"?effH(key,d,o) : effC(key,d,o);
+  const val=(key,d,o)=> metric==="edcc"?(o?o.e:0) : metric==="novelty"?(o?o.n:0) : metric==="loyal"?(o?o.l:0) : metric==="hours"?effH(key,d,o) : effC(key,d,o);
   let max=1; team.forEach(r=>{const key=norm(r.name); dayList.forEach(d=>{const v=val(key,d,(grid[key]||{})[d]); if(v>max)max=v;});});
   const short=d=>String(d).slice(8,10)||d;
   const heat=(v)=>{ const r=Math.min(1,v/max);
