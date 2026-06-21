@@ -87,6 +87,11 @@ tr.day-row:hover{background:var(--panel2)}
 #dayMatrix .cv{font-size:13px}
 #dayMatrix .ch{font-size:9px;font-weight:500;color:rgba(255,255,255,.78);letter-spacing:.2px}
 #dayMatrix td.sumh{color:var(--acc2);font-weight:600}
+#dayModal{padding:12px 6px}
+#dayMatrix td,#dayMatrix th{padding:4px 5px}
+#dayMatrix .cv{font-size:12px}
+#dayMatrix th{font-size:10px}
+#dayMatrix td:first-child,#dayMatrix th:first-child{min-width:140px;max-width:170px;white-space:normal}
 #dayMatrix tr:last-child td{border-top:2px solid var(--line);font-weight:700;background:var(--panel2)}
 #dayMatrix th.wk-grp{background:#1c2742;color:#cfe0ff;border-left:2px solid var(--acc);font-size:10px;letter-spacing:.3px}
 #dayMatrix td.wk-start,#dayMatrix th.wk-start{border-left:2px solid #3a4659}
@@ -357,7 +362,7 @@ small.note{color:var(--mut);font-size:11px}
 
   <!-- DAY DRILLDOWN -->
   <div id="dayModal" onclick="if(event.target===this)closeDayView()">
-    <div class="dwin">
+    <div class="dwin" style="width:98vw;max-width:98vw">
       <div class="dhead">
         <h3>Активность по дням</h3>
         <span class="spacer"></span>
