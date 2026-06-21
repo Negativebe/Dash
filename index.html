@@ -51,8 +51,8 @@ header .spacer{flex:1}
 #dayBtn{background:var(--acc);border:0;color:#fff;padding:7px 14px;border-radius:8px;font-weight:600}
 
 /* DAY DRILLDOWN MODAL */
-#dayModal,#empModal,#mapModal,#fcModal,#snapModal{position:fixed;inset:0;background:rgba(6,9,15,.72);z-index:50;display:none;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto}
-#dayModal.open,#empModal.open,#mapModal.open,#fcModal.open,#snapModal.open{display:flex}
+#dayModal,#empModal,#mapModal,#fcModal,#snapModal,#apModal{position:fixed;inset:0;background:rgba(6,9,15,.72);z-index:50;display:none;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto}
+#dayModal.open,#empModal.open,#mapModal.open,#fcModal.open,#snapModal.open,#apModal.open{display:flex}
 #heatmap .leaflet-tile{filter:none}
 
 /* QUICK ACCESS DRAWER */
@@ -108,6 +108,11 @@ tr.day-row:hover{background:var(--panel2)}
 
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:22px}
 .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px}
+#progbar{position:fixed;top:0;left:0;right:0;height:4px;z-index:200;opacity:0;transition:opacity .3s;pointer-events:none}
+#progbar.on{opacity:1}
+#progfill{height:100%;width:0;background:linear-gradient(90deg,var(--acc),var(--acc2),#34d399);box-shadow:0 0 10px var(--acc2);transition:width .25s ease}
+.kpi-click{cursor:pointer;transition:border-color .15s,transform .1s}
+.kpi-click:hover{border-color:var(--acc2);transform:translateY(-1px)}
 .kpi .t{color:var(--mut);font-size:12px;margin-bottom:8px}
 .kpi .v{font-size:26px;font-weight:700}
 .kpi .s{font-size:12px;margin-top:6px;color:var(--mut)}
@@ -160,6 +165,7 @@ small.note{color:var(--mut);font-size:11px}
 </style>
 
 <!-- ================= LOGIN ================= -->
+<div id="progbar"><div id="progfill"></div></div>
 <div id="login">
   <div class="lcard">
     <h1>Командный дашборд</h1>
@@ -342,6 +348,26 @@ small.note{color:var(--mut);font-size:11px}
     </div>
   </div>
 
+  <!-- ACTIVE POS детализация -->
+  <div id="apModal" onclick="if(event.target===this)closeActivePos()">
+    <div class="dwin" style="width:min(1000px,100%)">
+      <div class="dhead">
+        <h3>Active POS — детализация точек</h3>
+        <span class="spacer"></span>
+        <small class="note" id="apInfo" style="color:var(--mut)"></small>
+        <select id="apMode" onchange="renderActivePos()" style="padding:7px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--txt)">
+          <option value="all">Все</option><option value="active">Только активные</option><option value="potential">Только потенциальные</option>
+        </select>
+        <input id="apSearch" oninput="renderActivePos()" placeholder="🔍 HST / координатор / код" style="padding:7px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--txt);max-width:200px">
+        <button class="dclose" onclick="closeActivePos()">×</button>
+      </div>
+      <div class="dbody">
+        <small class="note" style="display:block;margin-bottom:8px"><b style="color:#34d399">Активна</b> — HST первым набрал 20 успешных контактов на точке. <b style="color:#fbbf24">Потенциал</b> — точка ещё никем не закрыта, HST уже делал на ней контакты (в «До 20» — сколько осталось). Учитываются роль и фильтры.</small>
+        <div class="tbar"><table id="apTbl"></table></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ПРОГНОЗ -->
   <div id="fcModal" onclick="if(event.target===this)closeForecast()">
     <div class="dwin" style="width:min(1100px,100%)">
@@ -514,44 +540,62 @@ const HAS_WS = (typeof window!=="undefined" && window.storage && typeof window.s
 ================================================================== */
 const SUPA = { url:"https://jgfqstowvhipinluposx.supabase.co", key:"sb_publishable_2tScua0wMQcclJIJybM2xA_TjELxiUz", table:"app_state", row:"main" };
 const SUPA_ON = ()=> !!(SUPA.url && SUPA.key);
-async function supaGet(){
-  const r=await fetch(`${SUPA.url}/rest/v1/${SUPA.table}?id=eq.${SUPA.row}&select=data`,
+async function supaGetRow(){
+  const r=await fetch(`${SUPA.url}/rest/v1/${SUPA.table}?id=eq.${SUPA.row}&select=data,updated_at`,
     {headers:{apikey:SUPA.key}});
   if(!r.ok) throw new Error("GET "+r.status);
-  const j=await r.json(); return (j&&j[0])?j[0].data:null;
+  const j=await r.json(); return (j&&j[0])?j[0]:null; // {data, updated_at}
 }
+async function supaGet(){ const row=await supaGetRow(); return row?row.data:null; }
 async function supaSet(obj){
+  const stamp=new Date().toISOString();
   const r=await fetch(`${SUPA.url}/rest/v1/${SUPA.table}`,
     {method:"POST",headers:{apikey:SUPA.key,
       "Content-Type":"application/json", Prefer:"resolution=merge-duplicates,return=minimal"},
-     body:JSON.stringify([{id:SUPA.row, data:obj, updated_at:new Date().toISOString()}])});
+     body:JSON.stringify([{id:SUPA.row, data:obj, updated_at:stamp}])});
   if(!r.ok) throw new Error("POST "+r.status);
+  return stamp;
 }
 function normalizeStore(d){
-  return Object.assign({hostes:[],hostes2:[],hbc:[],tgbot:[],retraffic:[],tabel:[],dayCorr:{},empAdd:[],empRemove:[]}, d||{});
+  return Object.assign({hostes:[],hostes2:[],hbc:[],tgbot:[],retraffic:[],tabel:[],dayCorr:{},empAdd:[],empRemove:[],ttNames:{}}, d||{});
 }
+// ===== компактная упаковка записей (массивы вместо повторяющихся ключей) =====
+const packRecs = a => (a||[]).map(r=>[
+  r.id, r.user, r.success?1:0, r.novelty?1:0, r.loyal?1:0, r.reg?1:0,
+  r.date||"", (r.hour==null?"":r.hour), (r.lat==null?"":r.lat), (r.lng==null?"":r.lng), r.tt||"", ""
+]);
+const unpackRecs = a => (a||[]).map(x=>{ if(!Array.isArray(x)) return x;
+  const lat=x[8]===""?null:x[8], lng=x[9]===""?null:x[9];
+  return {id:x[0],user:x[1],success:!!x[2],novelty:!!x[3],loyal:!!x[4],reg:!!x[5],
+    date:x[6]||null,hour:x[7]===""?null:x[7],lat,lng,
+    gps:(lat!=null&&lng!=null)?lat+","+lng:"",tt:x[10]||"",ts:x[11]||"",city:null}; });
+function packStore(s){ return Object.assign({},s,{_v:2, hostes:packRecs(s.hostes), hostes2:packRecs(s.hostes2), hbc:packRecs(s.hbc)}); }
+function unpackStore(d){ d=normalizeStore(d); if(d&&d._v===2){ d.hostes=unpackRecs(d.hostes); d.hostes2=unpackRecs(d.hostes2); d.hbc=unpackRecs(d.hbc); } return d; }
 
-let STORE = { hostes:[], hostes2:[], hbc:[], tgbot:[], retraffic:[], tabel:[], dayCorr:{}, empAdd:[], empRemove:[] };
+let STORE = { hostes:[], hostes2:[], hbc:[], tgbot:[], retraffic:[], tabel:[], dayCorr:{}, empAdd:[], empRemove:[], ttNames:{} };
 const CONTACTS = ()=> STORE.hostes.concat(STORE.hostes2||[]);
-let lastSaveTs=0, BUSY=false;
+let lastSaveTs=0, BUSY=false, lastRemoteStamp="";
 
 async function loadStore(){
   if(SUPA_ON()){
-    try{ const d=await supaGet(); STORE=normalizeStore(d); return; }
+    try{ const row=await supaGetRow(); STORE=unpackStore(row?row.data:null); lastRemoteStamp=row?row.updated_at||"":""; return; }
     catch(e){ if(typeof logLine==="function") logLine("Общая база недоступна, работаю локально: "+e.message,"wn"); }
   }
   try{
-    if(HAS_WS){ const r=await window.storage.get(KEY,true); if(r&&r.value){STORE=normalizeStore(JSON.parse(r.value));} return; }
-    const ls=localStorage.getItem(KEY); if(ls){STORE=normalizeStore(JSON.parse(ls));}
+    if(HAS_WS){ const r=await window.storage.get(KEY,true); if(r&&r.value){STORE=unpackStore(JSON.parse(r.value));} return; }
+    const ls=localStorage.getItem(KEY); if(ls){STORE=unpackStore(JSON.parse(ls));}
   }catch(e){ /* ключа ещё нет — это норм */ }
 }
 async function saveStore(){
-  const json=JSON.stringify(STORE); lastSaveTs=Date.now();
+  const packed=packStore(STORE);
+  const json=JSON.stringify(packed); lastSaveTs=Date.now();
   try{ localStorage.setItem(KEY, json); }catch(e){}
   try{ if(HAS_WS) await window.storage.set(KEY, json, true); }catch(e){}
   if(SUPA_ON()){
-    try{ await supaSet(STORE); }
-    catch(e){ if(typeof logLine==="function") logLine("Не удалось записать в общую базу: "+e.message,"er"); }
+    try{ const stamp=await supaSet(packed); lastRemoteStamp=stamp;
+      if(typeof logLine==="function") logLine(`Сохранено в общую базу ✓ (${(json.length/1024/1024).toFixed(2)} МБ)`,"ok");
+    }
+    catch(e){ if(typeof logLine==="function") logLine("❌ Не удалось записать в общую базу: "+e.message+" — данные не разойдутся по всем!","er"); }
   }
 }
 // периодическая подтяжка общих данных у всех пользователей
@@ -572,19 +616,19 @@ function startSync(){
   if(!SUPA_ON()){ setDot("#8b97a7","Локальный режим (база не настроена)"); return; }
   checkConnection();
   setInterval(async()=>{
-    if(BUSY || Date.now()-lastSaveTs<6000) return; // идёт загрузка/сохранение — не затираем
-    try{ const d=await supaGet(); if(!d) return;
-      if(JSON.stringify(d)!==JSON.stringify(STORE)){
-        STORE=normalizeStore(d);
-        if(typeof render==="function") render();   // фильтры НЕ трогаем, чтобы выбор не слетал
-        if(typeof logLine==="function") logLine("Данные обновлены из общей базы","ok");
-      }
+    if(BUSY || Date.now()-lastSaveTs<8000) return; // идёт загрузка/сохранение — не затираем
+    try{ const row=await supaGetRow(); if(!row||!row.data) return;
+      // применяем ТОЛЬКО если в базе действительно более свежая версия (по метке времени)
+      if(lastRemoteStamp && row.updated_at && row.updated_at<=lastRemoteStamp) return;
+      STORE=unpackStore(row.data); lastRemoteStamp=row.updated_at||lastRemoteStamp;
+      if(typeof render==="function") render();
+      if(typeof logLine==="function") logLine("Данные обновлены из общей базы","ok");
     }catch(e){}
   }, 20000);
 }
 async function syncNow(){
   if(!SUPA_ON()){ logLine("Общая база не настроена (см. SUPA в коде)","wn"); return; }
-  try{ const d=await supaGet(); STORE=normalizeStore(d); buildFilters(); render(); logLine("Обновлено из общей базы","ok"); }
+  try{ const row=await supaGetRow(); STORE=unpackStore(row?row.data:null); lastRemoteStamp=row?row.updated_at||"":""; buildFilters(); render(); logLine("Обновлено из общей базы","ok"); }
   catch(e){ logLine("Ошибка обновления: "+e.message,"er"); }
 }
 
@@ -647,6 +691,7 @@ async function ingest(file, cleared, opts){
       date:(()=>{const i=headers.findIndex(h=>{const n=norm(h);return n.includes("дата")&&!n.includes("мод");});return i;})(),
       gps :col(headers,"gps","geo","координат","coordinates"),
       tt  :(()=>{const i=headers.findIndex(h=>{const n=norm(h);return n.includes("код")&&(n.includes("т.т")||n.includes("тт")||n.includes("т т"));});return i;})(),
+      ttn :(()=>{const i=headers.findIndex(h=>{const n=norm(h);return n.includes("название")&&(n.includes("т.т")||n.includes("тт")||n.includes("т т"));});return i;})(),
       city:col(headers,"city","город")
     };
     const isNov=v=>{const s=norm(v); return s.includes("hudson")||s.includes("manhattan")||s.includes("хадсон")||s.includes("манхеттен");};
@@ -683,6 +728,7 @@ async function ingest(file, cleared, opts){
         if(g.length>=2){ const a=parseFloat(g[0]),b=parseFloat(g[1]);
           if(!isNaN(a)&&!isNaN(b)&&a>35&&a<46&&b>55&&b<74){ lat=a; lng=b; gpsRaw=raw; } } } // в пределах Узбекистана
       const ttCode = c.tt>=0 ? String(r[headers[c.tt]]??"").trim() : "";
+      if(ttCode && c.ttn>=0){ const nm=String(r[headers[c.ttn]]??"").trim(); if(nm){ STORE.ttNames=STORE.ttNames||{}; STORE.ttNames[ttCode]=nm; } }
       STORE[type].push({id, user:r[headers[userI]], success, novelty, loyal, reg,
               city:c.city>=0?r[headers[c.city]]:null, date:date||null, hour, lat, lng, gps:gpsRaw, tt:ttCode, ts:ts||""});
       added++;
@@ -890,8 +936,10 @@ function renderKpis(rows){
     ["Рег. в ТГ-боте",reg.toLocaleString("ru"),`Доля от контактов: ${contacts?fmtPct(reg/contacts):"0%"}`],
     ["Ретрафик",rtDone.toLocaleString("ru"),`План ${rtPlan} · ${rtPlan?pctPill(rtDone/rtPlan):"—"}`]
   ];
-  document.getElementById("kpis").innerHTML=cards.map(c=>`
-    <div class="kpi"><div class="t">${c[0]}</div><div class="v">${c[1]}</div><div class="s">${c[2]}</div></div>`).join("");
+  document.getElementById("kpis").innerHTML=cards.map(c=>{
+    const clickable = c[0]==="Active POS";
+    return `<div class="kpi${clickable?' kpi-click':''}"${clickable?' onclick="openActivePos()" title="Открыть детализацию точек"':''}><div class="t">${c[0]}${clickable?' <span style="color:var(--acc2);font-size:11px">▸ детали</span>':''}</div><div class="v">${c[1]}</div><div class="s">${c[2]}</div></div>`;
+  }).join("");
 }
 
 function renderCharts(rows){
@@ -1214,6 +1262,7 @@ function doLogin(){
 }
 function enterApp(sess){
   SESSION=sess;
+  try{ localStorage.setItem("dash_session", JSON.stringify(sess)); }catch(e){}
   document.getElementById("login").style.display="none";
   document.getElementById("app").style.display="block";
   const badge=document.getElementById("rolebadge");
@@ -1230,7 +1279,7 @@ function enterApp(sess){
   buildFilters(); render();
   startSync();
 }
-function logout(){ SESSION=null; location.reload(); }
+function logout(){ SESSION=null; try{ localStorage.removeItem("dash_session"); }catch(e){} location.reload(); }
 document.getElementById("lp").addEventListener("keydown",e=>{if(e.key==="Enter")doLogin();});
 
 /* ========================================================================
@@ -1311,8 +1360,50 @@ function downloadSnap(){
   }).catch(()=>alert("Не получилось сохранить картинку — сделай обычный скриншот блока."));
 }
 
-/* ===== Прогноз до конца месяца ===== */
-function monthSpan(){
+/* ===== Active POS — детализация (активные + потенциальные точки) ===== */
+function activePosDetail(){
+  const names=STORE.ttNames||{};
+  const pt={};
+  CONTACTS().forEach(r=>{
+    const tt=r.tt; if(!tt) return; if(!r.success) return;
+    const m=matchRoster(r.user); const key=m?norm(m.name):norm(r.user);
+    const e=pt[tt]||(pt[tt]={}); (e[key]||(e[key]=[])).push(r.ts||((r.date||"")+" "+(r.hour!=null?String(r.hour).padStart(2,"0"):"00")));
+  });
+  const active=[], potential=[];
+  Object.keys(pt).forEach(tt=>{
+    const emps=pt[tt]; let best=null,bt=null;
+    Object.keys(emps).forEach(k=>{const l=emps[k]; if(l.length>=NORM.posThreshold){ l.sort(); const t20=l[NORM.posThreshold-1]; if(bt===null||t20<bt){bt=t20;best=k;} }});
+    if(best){ active.push({key:best, tt, name:names[tt]||"", cnt:emps[best].length}); }
+    else { Object.keys(emps).forEach(k=>potential.push({key:k, tt, name:names[tt]||"", cnt:emps[k].length, left:NORM.posThreshold-emps[k].length})); }
+  });
+  return {active, potential};
+}
+function openActivePos(){ document.getElementById("apModal").classList.add("open"); renderActivePos(); }
+function closeActivePos(){ document.getElementById("apModal").classList.remove("open"); }
+function renderActivePos(){
+  const allowed=new Set(visibleRows().map(r=>norm(r.name)));
+  const meta=k=>{const r=EFF_ROSTER.find(x=>norm(x.name)===k); return r?{name:r.name,coord:r.coord,city:r.city}:{name:nameOfKey(k),coord:"—",city:""};};
+  const {active,potential}=activePosDetail();
+  const q=norm(document.getElementById("apSearch")?.value||"");
+  const mode=document.getElementById("apMode")?.value||"all";
+  let A=active.filter(x=>allowed.has(x.key)), P=potential.filter(x=>allowed.has(x.key));
+  const flt=arr=>arr.filter(x=>{const m=meta(x.key); return !q||norm(m.name).includes(q)||norm(m.coord).includes(q)||String(x.tt).includes(q)||norm(x.name).includes(q);});
+  A=flt(A); P=flt(P);
+  document.getElementById("apInfo").textContent=`Активных точек: ${A.length} · потенциальных: ${P.length}`;
+  const rowsHtml=(arr,isActive)=>arr.sort((a,b)=>{const ma=meta(a.key),mb=meta(b.key);return ma.coord.localeCompare(mb.coord,"ru")||ma.name.localeCompare(mb.name,"ru")|| (b.cnt-a.cnt);})
+    .map(x=>{const m=meta(x.key);
+      return `<tr><td>${m.coord}</td><td>${m.name}</td><td class="num">${x.tt}</td><td>${x.name||"—"}</td><td class="num">${x.cnt}</td>`
+        +(isActive?`<td><span class="pill g">активна</span></td><td class="num">—</td>`
+                  :`<td><span class="pill" style="background:#3a2e12;color:#fbbf24">потенциал</span></td><td class="num" style="color:#fbbf24">${x.left}</td>`)+`</tr>`;}).join("");
+  let html="<thead><tr><th>Координатор</th><th>HST</th><th class='num'>Код т.т.</th><th>Название т.т.</th><th class='num'>Успешных</th><th>Статус</th><th class='num'>До 20</th></tr></thead><tbody>";
+  if(mode!=="potential") html+=rowsHtml(A,true);
+  if(mode!=="active") html+=rowsHtml(P,false);
+  if(!A.length && !P.length) html+=`<tr><td colspan="7" style="text-align:center;color:var(--mut);padding:24px">Нет точек под выбранные фильтры. ${(STORE.ttNames&&Object.keys(STORE.ttNames).length)?"":"(после загрузки названия точек появятся)"}</td></tr>`;
+  html+="</tbody>";
+  document.getElementById("apTbl").innerHTML=html;
+}
+
+/* ===== Прогноз до конца месяца ===== */function monthSpan(){
   let minD=null,maxD=null;
   const scan=d=>{ if(d&&/^\d{4}-\d{2}-\d{2}$/.test(d)){ if(!minD||d<minD)minD=d; if(!maxD||d>maxD)maxD=d; } };
   CONTACTS().forEach(r=>scan(r.date));
@@ -1574,22 +1665,38 @@ function renderDtags(){
   document.getElementById("dtags").innerHTML=Object.keys(T).map(k=>
     `<span class="dtag">${T[k]}: <b>${STORE[k].length}</b></span>`).join("");
 }
+function setProg(pct,reset){
+  const b=document.getElementById("progbar"),f=document.getElementById("progfill"); if(!b||!f)return;
+  if(reset){ b.classList.remove("on"); f.style.width="0"; return; }
+  b.classList.add("on"); f.style.width=Math.min(100,pct)+"%";
+  if(pct>=100){ setTimeout(()=>{ b.classList.remove("on"); setTimeout(()=>f.style.width="0",350); },800); }
+}
+const yield_=()=>new Promise(r=>setTimeout(r,30));
 async function handleFiles(files, opts){
   opts=opts||{};
   BUSY=true; lastSaveTs=Date.now();
+  setProg(8); await yield_();
   logLine("Загрузка… не закрывайте вкладку","wn");
   try{
-    // подтянуть свежую общую базу, чтобы заменять контакты, но сохранить чужие правки/сотрудников
     if(SUPA_ON()){ try{ const d=await supaGet(); if(d){ const fresh=normalizeStore(d);
       STORE.dayCorr=fresh.dayCorr; STORE.empAdd=fresh.empAdd; STORE.empRemove=fresh.empRemove; } }catch(e){} }
-    rebuildRoster();  // чтобы распознать в т.ч. добавленных вручную сотрудников
+    setProg(25); await yield_();
+    rebuildRoster();
     const replace = document.getElementById("replaceMode")?.checked;
     const cleared = new Set();
-    for(const f of files){ await ingest(f, replace?cleared:null, opts); }
+    for(let i=0;i<files.length;i++){
+      setProg(25 + Math.round((i/files.length)*45)); await yield_();
+      await ingest(files[i], replace?cleared:null, opts);
+    }
+    setProg(72); await yield_();
     lastSaveTs=Date.now();
     await saveStore();
+    setProg(90); await yield_();
     renderDtags(); buildFilters(); render();
-  } finally { BUSY=false; lastSaveTs=Date.now(); }
+    setProg(100);
+    logLine("✓ Готово — данные обновлены","ok");
+  } catch(e){ setProg(100); logLine("Ошибка загрузки: "+(e&&e.message||e),"er"); }
+  finally { BUSY=false; lastSaveTs=Date.now(); }
 }
 function clearData(){
   if(!confirm("Удалить все загруженные данные? Ручные корректировки сохранятся и применятся снова после загрузки."))return;
@@ -1665,13 +1772,19 @@ window.addEventListener("DOMContentLoaded",()=>{
   }
   const file2=document.getElementById("file2");
   if(file2){ file2.addEventListener("change",e=>handleFiles([...e.target.files],{forceType:"hostes2",allSuccess:true})); }
+  // не давать браузеру открыть файл, если его случайно бросили мимо зоны загрузки
+  ["dragover","drop"].forEach(ev=>window.addEventListener(ev,e=>{ e.preventDefault(); },false));
 });
 
-/* старт: показываем экран входа (данные подгружаем заранее для проверки host-логинов) */
+/* старт: восстановить сессию, иначе показать вход */
 loadStore().then(()=>{
   rebuildRoster();
-  checkConnection();           // покажет статус базы и в лог
-  document.getElementById("login").style.display="flex";
-  document.getElementById("app").style.display="none";
+  checkConnection();
+  let saved=null; try{ saved=JSON.parse(localStorage.getItem("dash_session")||"null"); }catch(e){}
+  if(saved && saved.role){ enterApp(saved); }
+  else {
+    document.getElementById("login").style.display="flex";
+    document.getElementById("app").style.display="none";
+  }
 });
 </script>
