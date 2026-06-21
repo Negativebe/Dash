@@ -6,6 +6,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
 :root{
   --bg:#0e1117; --panel:#161b24; --panel2:#1c2330; --line:#272f3d;
@@ -50,8 +51,8 @@ header .spacer{flex:1}
 #dayBtn{background:var(--acc);border:0;color:#fff;padding:7px 14px;border-radius:8px;font-weight:600}
 
 /* DAY DRILLDOWN MODAL */
-#dayModal,#empModal,#mapModal{position:fixed;inset:0;background:rgba(6,9,15,.72);z-index:50;display:none;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto}
-#dayModal.open,#empModal.open,#mapModal.open{display:flex}
+#dayModal,#empModal,#mapModal,#fcModal,#snapModal{position:fixed;inset:0;background:rgba(6,9,15,.72);z-index:50;display:none;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto}
+#dayModal.open,#empModal.open,#mapModal.open,#fcModal.open,#snapModal.open{display:flex}
 #heatmap .leaflet-tile{filter:none}
 
 /* QUICK ACCESS DRAWER */
@@ -113,11 +114,16 @@ tr.day-row:hover{background:var(--panel2)}
 .card canvas{max-height:260px}
 
 table{width:100%;border-collapse:collapse;font-size:13px}
-th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
-th{color:var(--mut);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.4px;
+th,td{padding:7px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--mut);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.3px;
   cursor:pointer;user-select:none}
 th:hover{color:var(--txt)}
 tbody tr:hover{background:var(--panel2)}
+/* закреплённые левые колонки таблицы детализации */
+#tbl th:nth-child(1),#tbl td:nth-child(1){position:sticky;left:0;z-index:2;background:var(--panel);min-width:150px}
+#tbl th:nth-child(2),#tbl td:nth-child(2){position:sticky;left:150px;z-index:2;background:var(--panel);min-width:130px}
+#tbl tbody tr:hover td:nth-child(1),#tbl tbody tr:hover td:nth-child(2){background:var(--panel2)}
+#tbl td,#tbl th{font-size:12px;padding:6px 7px}
 .tbar{overflow:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .mini{height:6px;border-radius:4px;background:var(--panel2);overflow:hidden;display:inline-block;width:60px;vertical-align:middle;margin-left:6px}
@@ -172,6 +178,8 @@ small.note{color:var(--mut);font-size:11px}
     <span id="syncDot" title="Общая база" style="display:none;width:9px;height:9px;border-radius:50%;background:#34d399;box-shadow:0 0 8px #34d399"></span>
     <span class="sub" id="whoami"></span>
     <button id="dayBtn" onclick="openDayView()">📅 По дням</button>
+    <button id="fcBtn" onclick="openForecast()" style="background:#0ea5e9;border:0;color:#fff;padding:7px 14px;border-radius:8px;font-weight:600">📈 Прогноз</button>
+    <button id="snapBtn" onclick="openSnap()" style="background:#10b981;border:0;color:#fff;padding:7px 14px;border-radius:8px;font-weight:600">📸 Сводка</button>
     <button id="mapBtn" onclick="openMap()" style="background:#7c3aed;border:0;color:#fff;padding:7px 14px;border-radius:8px;font-weight:600">🗺 Хитмап</button>
     <button id="logout" onclick="logout()">Выйти</button>
   </header>
@@ -194,12 +202,6 @@ small.note{color:var(--mut);font-size:11px}
           <input type="checkbox" id="replaceMode" checked style="width:16px;height:16px">
           Заменять данные (не накапливать)
         </label>
-        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
-          <div style="font-size:12px;margin-bottom:8px">Анкета — <b>все контакты успешны</b>:</div>
-          <label class="uploadbtn" style="background:var(--acc2);color:#06283d">Анкета (все успешны)
-            <input type="file" id="file2" multiple accept=".csv,.xlsx,.xls" style="display:none">
-          </label>
-        </div>
       </div>
       <div class="dataset-tags" id="dtags"></div>
       <div class="log" id="log"></div>
@@ -298,7 +300,53 @@ small.note{color:var(--mut);font-size:11px}
         <small class="note" style="display:block;margin-top:8px">ФИО должно совпадать с полем «Пользователь» в выгрузке, иначе контакты не подтянутся.</small>
 
         <div class="sec-title" style="margin-top:20px">Список сотрудников</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+          <input id="empSearch" oninput="renderEmpList()" placeholder="🔍 поиск по ФИО / координатору"
+            style="flex:1;min-width:200px;padding:8px 11px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;color:var(--txt)">
+          <select id="empFilterCoord" onchange="renderEmpList()" style="padding:8px 11px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;color:var(--txt)"></select>
+          <select id="empFilterPos" onchange="renderEmpList()" style="padding:8px 11px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;color:var(--txt)">
+            <option value="">Все должности</option><option>HST</option><option>HBC</option>
+          </select>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mut);white-space:nowrap">
+            <input type="checkbox" id="empShowRemoved" onchange="renderEmpList()" style="width:15px;height:15px"> показать удалённых
+          </label>
+        </div>
+        <small class="note" id="empCount" style="display:block;margin-bottom:6px"></small>
         <div class="tbar" style="max-height:340px;overflow:auto"><table id="empList"></table></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- СВОДКА КОМАНДЫ (для скриншота) -->
+  <div id="snapModal" onclick="if(event.target===this)closeSnap()">
+    <div class="dwin" style="width:min(820px,100%)">
+      <div class="dhead">
+        <h3>Сводка команды</h3>
+        <span class="spacer"></span>
+        <button onclick="downloadSnap()" style="background:var(--acc);color:#fff;border:0;padding:8px 14px;border-radius:9px;font-weight:600">⬇ Скачать картинкой (PNG)</button>
+        <button class="dclose" onclick="closeSnap()">×</button>
+      </div>
+      <div class="dbody">
+        <div id="snapContent"></div>
+        <small class="note" style="display:block;margin-top:8px">Удобно для отправки в чат: жми «Скачать картинкой» или сделай скриншот этого блока — всё помещается без прокрутки.</small>
+      </div>
+    </div>
+  </div>
+
+  <!-- ПРОГНОЗ -->
+  <div id="fcModal" onclick="if(event.target===this)closeForecast()">
+    <div class="dwin" style="width:min(1100px,100%)">
+      <div class="dhead">
+        <h3>Прогноз до конца месяца</h3>
+        <span class="spacer"></span>
+        <small class="note" id="fcInfo" style="color:var(--mut)"></small>
+        <button class="dclose" onclick="closeForecast()">×</button>
+      </div>
+      <div class="dbody">
+        <div class="kpis" id="fcKpis" style="margin-bottom:16px"></div>
+        <div class="sec-title">Прогноз по сотрудникам (если темп сохранится)</div>
+        <div class="tbar"><table id="fcTbl"></table></div>
+        <small class="note" style="display:block;margin-top:8px">Прогноз = текущий факт × (дней в месяце ÷ прошедших дней). План HST: eDCC 460, новинки 280. Зелёный — выйдет на план, красный — нет.</small>
       </div>
     </div>
   </div>
@@ -360,7 +408,7 @@ const ROSTER = [
 {"coord":"Xasanov Ulugbek","name":"Бозоров Нурбек","pos":"HBC","city":"Tashkent"},{"coord":"Xasanov Ulugbek","name":"Талибжанов Шавкат","pos":"HBC","city":"Tashkent"},{"coord":"Xasanov Ulugbek","name":"Риксибоев Дильшод","pos":"HBC","city":"Tashkent"},{"coord":"Xasanov Ulugbek","name":"Ирсалиев Турлибек","pos":"HBC","city":"Tashkent"},{"coord":"Xasanov Ulugbek","name":"Каримов Шохрух","pos":"HBC","city":"Tashkent"},{"coord":"Xasanov Ulugbek","name":"Пулатов Рустам","pos":"HBC","city":"Tashkent"},{"coord":"Xasanov Ulugbek","name":"Усмонов Бурхон","pos":"HBC","city":"Tashkent"},{"coord":"Xasanov Ulugbek","name":"Махаматов Шерзод","pos":"HBC","city":"Tashkent"},{"coord":"Xasanov Ulugbek","name":"Рахматуллаев Джахонгир","pos":"HBC","city":"Tashkent"},
 {"coord":"Ziyayev Botir","name":"Куртумеров Димир","pos":"HST","city":"Tashkent"},{"coord":"Ziyayev Botir","name":"Данилов Руслан","pos":"HST","city":"Tashkent"},{"coord":"Ziyayev Botir","name":"Фаритова Эльвира","pos":"HST","city":"Tashkent"},{"coord":"Ziyayev Botir","name":"Каримов Рустам","pos":"HST","city":"Tashkent"},{"coord":"Ziyayev Botir","name":"Лишенкова Ангелина","pos":"HST","city":"Tashkent"},{"coord":"Ziyayev Botir","name":"Фаизов Арслан","pos":"HST","city":"Tashkent"}
 ];
-const NORM = { contactsPerDay:22, dayHoursCap:8, edccHST:460, edccHBC:800, noveltyHST:280, noveltyHBC:280 };
+const NORM = { contactsPerDay:22, dayHoursCap:8, edccHST:460, edccHBC:800, noveltyHST:280, noveltyHBC:280, posThreshold:20 };
 
 /* ========================================================================
    2. ДОСТУПЫ (логины/пароли зашиты в клиенте — демо-уровень)
@@ -475,7 +523,7 @@ function normalizeStore(d){
 
 let STORE = { hostes:[], hostes2:[], hbc:[], tgbot:[], retraffic:[], tabel:[], dayCorr:{}, empAdd:[], empRemove:[] };
 const CONTACTS = ()=> STORE.hostes.concat(STORE.hostes2||[]);
-let lastSaveTs=0;
+let lastSaveTs=0, BUSY=false;
 
 async function loadStore(){
   if(SUPA_ON()){
@@ -514,7 +562,7 @@ function startSync(){
   if(!SUPA_ON()){ setDot("#8b97a7","Локальный режим (база не настроена)"); return; }
   checkConnection();
   setInterval(async()=>{
-    if(Date.now()-lastSaveTs<6000) return; // только что писали сами
+    if(BUSY || Date.now()-lastSaveTs<6000) return; // идёт загрузка/сохранение — не затираем
     try{ const d=await supaGet(); if(!d) return;
       if(JSON.stringify(d)!==JSON.stringify(STORE)){
         STORE=normalizeStore(d);
@@ -595,8 +643,10 @@ async function ingest(file, cleared, opts){
     const isPmiBrand=v=>{const s=" "+norm(v)+" "; return PMI.some(k=>s.includes(k));};
     const idI=col(headers,"#");
     const existing=new Set(STORE[type].map(x=>x.id).filter(x=>x!=null&&x!==""));
-    let added=0, dup=0;
+    let added=0, dup=0, skipped=0;
     data.forEach(r=>{
+      const uName=r[headers[userI]];
+      if(!matchRoster(uName)){ skipped++; return; }  // вне ростера — отбрасываем
       const id = idI>=0 ? String(r[headers[idI]]??"") : "";
       if(id && existing.has(id)){ dup++; return; }
       if(id) existing.add(id);
@@ -622,11 +672,11 @@ async function ingest(file, cleared, opts){
         if(g.length>=2){ const a=parseFloat(g[0]),b=parseFloat(g[1]);
           if(!isNaN(a)&&!isNaN(b)&&a>35&&a<46&&b>55&&b<74){ lat=a; lng=b; } } } // в пределах Узбекистана
       STORE[type].push({id, user:r[headers[userI]], success, novelty, loyal, reg,
-              city:c.city>=0?r[headers[c.city]]:null, date:date||null, hour, lat, lng});
+              city:c.city>=0?r[headers[c.city]]:null, date:date||null, hour, lat, lng, ts:ts||""});
       added++;
     });
     const lbl = type==="hostes2" ? "Анкета (все успешны)" : "Хостес";
-    logLine(`✓ ${file.name} → ${lbl}: добавлено ${added}${dup?`, пропущено дублей ${dup}`:""}`, dup?"wn":"ok");
+    logLine(`✓ ${file.name} → ${lbl}: добавлено ${added}${dup?`, дублей ${dup}`:""}${skipped?`, вне ростера ${skipped} (пропущены)`:""}`, "ok");
     renderDtags(); return; // лог уже выведен
     const su=col(headers,"успешн","успешна");
     STORE.hbc.push(...data.map(r=>({user:r[headers[userI]], success:norm(r[headers[su]])==="y"})));
@@ -658,14 +708,7 @@ function buildTotals(){
     contacts:0,edccDone:0,loyal:0,novelty:0,reg:0,hbcSuccess:0,
     hours:0,days:0,_byday:{}
   };});
-  const get=u=>{
-    const m=matchRoster(u);
-    if(m) return map[norm(m.name)];
-    const k="?"+norm(u);
-    if(!map[k]) map[k]={name:String(u||"—"),coord:"— не распознан —",rm:"—",pos:"HST",city:"",
-      contacts:0,edccDone:0,loyal:0,novelty:0,reg:0,hbcSuccess:0,hours:0,days:0,_byday:{},_unknown:true};
-    return map[k];
-  };
+  const get=u=>{ const m=matchRoster(u); return m?map[norm(m.name)]:null; };
 
   // контакты-опросы: накапливаем ПО ДНЯМ (контакты, уник. часы, eDCC, новинки, лояльн., рег.)
   CONTACTS().forEach(r=>{const t=get(r.user); if(!t)return;
@@ -681,7 +724,27 @@ function buildTotals(){
   STORE.tabel.forEach(r=>{const m=matchRoster(r.user); if(!m)return; tabelHours[norm(m.name)]=(tabelHours[norm(m.name)]||0)+(r.hours||0);});
 
   const DC=STORE.dayCorr||{};
-  // дни, для которых есть только ручная корректировка (факта нет) — чтобы правки жили и без данных
+  // ===== ACTIVE POS: первый, кто набрал 20 контактов на уникальной точке (за месяц) =====
+  const posMap={}; // "lat,lng" -> { empKey: [ts,...] }
+  CONTACTS().forEach(r=>{
+    if(r.lat==null||r.lng==null) return;
+    const mm=matchRoster(r.user); const key=mm?norm(mm.name):norm(r.user);
+    const pk=r.lat.toFixed(4)+","+r.lng.toFixed(4);
+    const e=posMap[pk]||(posMap[pk]={});
+    (e[key]||(e[key]=[])).push(r.ts||((r.date||"")+" "+(r.hour!=null?String(r.hour).padStart(2,"0"):"00")));
+  });
+  const activeCount={};
+  Object.values(posMap).forEach(emps=>{
+    let bestKey=null,bestTs=null;
+    Object.keys(emps).forEach(k=>{
+      const list=emps[k]; if(list.length>=NORM.posThreshold){
+        list.sort(); const t20=list[NORM.posThreshold-1];
+        if(bestTs===null||t20<bestTs){bestTs=t20;bestKey=k;}
+      }
+    });
+    if(bestKey) activeCount[bestKey]=(activeCount[bestKey]||0)+1;
+  });
+  Object.values(map).forEach(t=>{ t.activePos = activeCount[norm(t.name)]||0; });
   Object.keys(DC).forEach(kk=>{
     const idx=kk.lastIndexOf("|"); const ek=kk.slice(0,idx); const dd=kk.slice(idx+1);
     const t = ek.startsWith("?") ? map[ek] : map[ek];
@@ -804,6 +867,7 @@ function renderKpis(rows){
   let rtDone=0,rtPlan=0; Object.keys(rt).forEach(k=>{ if([...coords].some(c=>norm(c)===k)){rtDone+=rt[k].done;rtPlan+=rt[k].plan;}});
   const cards=[
     ["Контактов всего",contacts.toLocaleString("ru"),`Сотрудников: ${headcount} · смен: ${mandays}`],
+    ["Active POS",rows.reduce((a,r)=>a+(r.activePos||0),0).toLocaleString("ru"),`Точки с 20+ контактами (первому HST)`],
     ["Контактов / день",avgPerDay.toFixed(1),`План 22/день · ${avgPerDay?pctPill(avgPerDay/NORM.contactsPerDay):"—"}`],
     ["eDCC (Успешность=Y)",edcc.toLocaleString("ru"),`План ${planEdcc.toLocaleString("ru")} · ${planEdcc?pctPill(edcc/planEdcc):"—"}`],
     ["Новинки (Hudson/Manhattan)",nov.toLocaleString("ru"),`План ${planNov.toLocaleString("ru")} · ${planNov?pctPill(nov/planNov):"—"}`],
@@ -837,6 +901,7 @@ function renderCharts(rows){
 function renderTable(rows){
   const cols=[
     ["name","Хостес","t"],["coord","Coordinator","t"],["rm","SPV","t"],["pos","Долж.","t"],["city","Город","t"],
+    ["activePos","Active POS","n"],
     ["contacts","Контакты","n"],["days","Смен","n"],["avgPerDay","Конт/день","d"],["pctContacts","% дн.плана","p"],
     ["edccDone","eDCC","n"],["pctEdcc","% eDCC","p"],
     ["novelty","Новинки","n"],["pctNovelty","% новинок","p"],
@@ -1019,7 +1084,61 @@ function render(){
 /* ========================================================================
    9. ЛОГИН / СЕССИЯ
    ======================================================================== */
+const HOST_USERS = {
+  "hst.nasriev": {p:"NasrievB26", name:"Насриев Бехруз"},
+  "hst.zhavokhir": {p:"ZhavokhirN26", name:"Жавохир Нормуродов"},
+  "hst.islomova": {p:"IslomovaO26", name:"Исломова Одинахон"},
+  "hst.mamanazarov": {p:"MamanazarovU26", name:"Маманазаров Умид"},
+  "hst.boltaboev": {p:"BoltaboevM26", name:"Болтабоев Мухаммад"},
+  "hst.adkhamzhanov": {p:"AdkhamzhanovI26", name:"Адхамжанов Икромжон"},
+  "hst.kim": {p:"KimA26", name:"Ким Анастасия"},
+  "hst.dadazhanov": {p:"DadazhanovZ26", name:"Дадажанов Жахонгир"},
+  "hst.khe": {p:"KheT26", name:"Хе Татьяна"},
+  "hst.abdurafiev": {p:"AbdurafievD26", name:"Абдурафиев Данил"},
+  "hst.pulatov": {p:"PulatovF26", name:"Пулатов Фарход"},
+  "hst.bakirov": {p:"BakirovM26", name:"Бакиров Мирзохид"},
+  "hst.zhalilov": {p:"ZhalilovK26", name:"Жалилов Хасан"},
+  "hst.tyunina": {p:"TyuninaD26", name:"Тюнина Дарина"},
+  "hst.kayumov": {p:"KayumovI26", name:"Каюмов Исломжон"},
+  "hst.oleksenko": {p:"OleksenkoY26", name:"Олексенко Яна"},
+  "hst.gusev": {p:"GusevA26", name:"Гусев Александр"},
+  "hst.takhirbekov": {p:"TakhirbekovS26", name:"Тахирбеков Самандар"},
+  "hst.goldoevich": {p:"GoldoevichM26", name:"Голдоевич Максим"},
+  "hst.irgashev": {p:"IrgashevA26", name:"Иргашев Анвар"},
+  "hst.kurbanova": {p:"KurbanovaN26", name:"Курбанова Назокат"},
+  "hst.ollayorov": {p:"OllayorovM26", name:"Оллайоров Марат"},
+  "hst.urazboev": {p:"UrazboevS26", name:"Уразбоев Шохрухбек"},
+  "hst.sharipov": {p:"SharipovD26", name:"Шарипов Дильшод"},
+  "hst.semenova": {p:"SemenovaG26", name:"Семёнова Гульноза"},
+  "hst.ezilova": {p:"EzilovaO26", name:"Ёзилова Ольга"},
+  "hst.sarvardinova": {p:"SarvardinovaD26", name:"Сарвардинова Джамиля"},
+  "hst.kudaybergenova": {p:"KudaybergenovaR26", name:"Кудайбергенова Регина"},
+  "hst.yakupova": {p:"YakupovaR26", name:"Якупова Рината"},
+  "hst.inomzhonov": {p:"InomzhonovS26", name:"Иномжонов Шохислом"},
+  "hst.turdikulov": {p:"TurdikulovS26", name:"Турдикулов Шохзодбек"},
+  "hst.bakhrdirov": {p:"BakhrdirovS26", name:"Бахрдиров Саидахрор"},
+  "hst.muydinov": {p:"MuydinovA26", name:"Муйдинов Акмалжон"},
+  "hst.yuldashev": {p:"YuldashevM26", name:"Юлдашев Муминжон"},
+  "hst.makhmudov": {p:"MakhmudovM26", name:"Махмудов Мирзаисакхон"},
+  "hst.abdullaeva": {p:"AbdullaevaS26", name:"Абдуллаева София"},
+  "hst.kadyrov": {p:"KadyrovZ26", name:"Кадыров Жумабой"},
+  "hst.yuldashev2": {p:"YuldashevU26", name:"Юлдашев Уткирбек"},
+  "hst.akbarov": {p:"AkbarovM26", name:"Акбаров Мухаммадзиё"},
+  "hst.turgunbaev": {p:"TurgunbaevA26", name:"Тургунбаев Азизбек"},
+  "hst.sadriddinov": {p:"SadriddinovM26", name:"Садриддинов Мироншох"},
+  "hst.istamov": {p:"IstamovR26", name:"Истамов Рамзиддин"},
+  "hst.ganieva": {p:"GanievaE26", name:"Ганиева Эльвира"},
+  "hst.kurtumerov": {p:"KurtumerovD26", name:"Куртумеров Димир"},
+  "hst.danilov": {p:"DanilovR26", name:"Данилов Руслан"},
+  "hst.faritova": {p:"FaritovaE26", name:"Фаритова Эльвира"},
+  "hst.karimov": {p:"KarimovR26", name:"Каримов Рустам"},
+  "hst.lishenkova": {p:"LishenkovaA26", name:"Лишенкова Ангелина"},
+  "hst.faizov": {p:"FaizovA26", name:"Фаизов Арслан"},
+};
 function findHostUser(u,p){
+  // встроенные HST-логины (по структуре)
+  const b=HOST_USERS[norm(u)];
+  if(b && String(b.p)===String(p)) return {role:"host", scope:b.name, label:"Хост · "+b.name};
   // кастомные HST-логины из общей базы (создаются аналитиком при добавлении сотрудника)
   const list=(STORE.empAdd||[]);
   const e=list.find(x=>x.login && norm(x.login)===norm(u) && String(x.pass)===String(p));
@@ -1066,6 +1185,129 @@ function toggleDrawer(){
   document.getElementById("drawer").classList.toggle("open");
   document.getElementById("drawerScrim").classList.toggle("open");
 }
+/* ===== Сводка команды (скриншот / PNG) ===== */
+function openSnap(){ document.getElementById("snapModal").classList.add("open"); renderSnap(); }
+function closeSnap(){ document.getElementById("snapModal").classList.remove("open"); }
+function renderSnap(){
+  const rows=visibleRows().filter(r=>r.contacts>0||r.hours>0)
+    .sort((a,b)=>a.coord.localeCompare(b.coord,"ru")||b.contacts-a.contacts);
+  // заголовок: чья команда
+  let scopeTitle="Все команды";
+  if(SESSION.role==="coord") scopeTitle="Координатор: "+SESSION.scope;
+  else if(SESSION.role==="spv") scopeTitle="SPV: "+SESSION.scope;
+  else if(SESSION.role==="host") scopeTitle=SESSION.scope;
+  const fCoord=document.getElementById("fCoord")?.value; if(fCoord) scopeTitle="Координатор: "+fCoord;
+  const sp=monthSpan(); const mn=["","январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"][sp.M];
+
+  const sum=k=>rows.reduce((a,r)=>a+(r[k]||0),0);
+  const tC=sum("contacts"),tE=sum("edccDone"),tN=sum("novelty"),tL=sum("loyal"),tA=sum("activePos"),tH=sum("hours");
+  const pe=v=>{const c=v>=0.7?"#34d399":v>=0.4?"#fbbf24":"#f87171";return c;};
+
+  const metric=(label,val,extra,color)=>`<div style="flex:1;min-width:78px;background:#0e1117;border:1px solid #272f3d;border-radius:8px;padding:7px 9px">
+    <div style="font-size:10px;color:#8b97a7">${label}</div>
+    <div style="font-size:16px;font-weight:700;color:${color||'#e6edf3'}">${val}</div>
+    ${extra?`<div style="font-size:10px;color:#8b97a7">${extra}</div>`:""}</div>`;
+
+  let html=`<div style="background:#161b24;border:1px solid #272f3d;border-radius:14px;padding:18px;font-family:Segoe UI,Arial">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div><div style="font-size:18px;font-weight:700;color:#e6edf3">${scopeTitle}</div>
+        <div style="font-size:12px;color:#8b97a7">Период: ${mn} ${sp.Y} · прошло ${sp.elapsed} из ${sp.days} дн.</div></div>
+      <div style="font-size:12px;color:#8b97a7;text-align:right">Сотрудников: <b style="color:#e6edf3">${rows.length}</b></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+      ${metric("Контакты",tC.toLocaleString("ru"))}
+      ${metric("eDCC",tE.toLocaleString("ru"))}
+      ${metric("Новинки",tN.toLocaleString("ru"))}
+      ${metric("Лояльники",tL.toLocaleString("ru"))}
+      ${metric("Active POS",tA.toLocaleString("ru"),"",'#6ee7b7')}
+      ${metric("Часы",tH.toLocaleString("ru"))}
+    </div>`;
+
+  rows.forEach(r=>{
+    const edccPlan=r.pos==="HBC"?NORM.edccHBC:NORM.edccHST, novPlan=r.pos==="HBC"?NORM.noveltyHBC:NORM.noveltyHST;
+    html+=`<div style="background:#1c2330;border:1px solid #272f3d;border-radius:10px;padding:10px 12px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:14px;font-weight:700;color:#e6edf3">${r.name} <span style="font-size:11px;color:#8b97a7;font-weight:400">· ${r.pos} · ${r.city||""}</span></div>
+        <div style="font-size:11px;color:#8b97a7">${r.coord}</div>
+      </div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap">
+        ${metric("Контакты",r.contacts,`${r.avgPerDay.toFixed(1)}/день`)}
+        ${metric("eDCC",r.edccDone,`${Math.round(r.pctEdcc*100)}% от ${edccPlan}`,pe(r.pctEdcc))}
+        ${metric("Новинки",r.novelty,`${Math.round(r.pctNovelty*100)}% от ${novPlan}`,pe(r.pctNovelty))}
+        ${metric("Лояльн.",r.loyal)}
+        ${metric("Active POS",r.activePos,"",'#6ee7b7')}
+        ${metric("Часы",r.hours)}
+        ${metric("Смен",r.days)}
+      </div>
+    </div>`;
+  });
+  if(!rows.length) html+=`<div style="text-align:center;color:#8b97a7;padding:24px">Нет данных по команде</div>`;
+  html+=`<div style="font-size:10px;color:#5a6678;margin-top:6px">Командный дашборд · сформировано ${new Date().toLocaleDateString("ru")}</div></div>`;
+  document.getElementById("snapContent").innerHTML=html;
+}
+function downloadSnap(){
+  const el=document.getElementById("snapContent");
+  if(typeof html2canvas!=="function"){ alert("Не удалось загрузить модуль картинки (нужен интернет). Сделай обычный скриншот."); return; }
+  html2canvas(el,{backgroundColor:"#0e1117",scale:2}).then(canvas=>{
+    const a=document.createElement("a"); a.href=canvas.toDataURL("image/png");
+    a.download="svodka_komandy.png"; a.click();
+  }).catch(()=>alert("Не получилось сохранить картинку — сделай обычный скриншот блока."));
+}
+
+/* ===== Прогноз до конца месяца ===== */
+function monthSpan(){
+  let minD=null,maxD=null;
+  const scan=d=>{ if(d&&/^\d{4}-\d{2}-\d{2}$/.test(d)){ if(!minD||d<minD)minD=d; if(!maxD||d>maxD)maxD=d; } };
+  CONTACTS().forEach(r=>scan(r.date));
+  if(!maxD){ const t=new Date(); return {Y:t.getFullYear(),M:t.getMonth()+1,elapsed:t.getDate(),days:new Date(t.getFullYear(),t.getMonth()+1,0).getDate()}; }
+  const [Y,M]=maxD.split("-").map(Number);
+  const days=new Date(Y,M,0).getDate();
+  const elapsed=Math.max(1, +maxD.slice(8,10));
+  return {Y,M,elapsed,days,maxD};
+}
+function openForecast(){ document.getElementById("fcModal").classList.add("open"); renderForecast(); }
+function closeForecast(){ document.getElementById("fcModal").classList.remove("open"); }
+function renderForecast(){
+  const sp=monthSpan(); const factor = sp.days/sp.elapsed;
+  const rows=visibleRows().filter(r=>r.contacts>0).map(r=>{
+    const edccPlan=r.pos==="HBC"?NORM.edccHBC:NORM.edccHST;
+    const novPlan =r.pos==="HBC"?NORM.noveltyHBC:NORM.noveltyHST;
+    const pe=Math.round(r.edccDone*factor), pn=Math.round(r.novelty*factor), pc=Math.round(r.contacts*factor), ph=Math.round(r.hours*factor);
+    return {...r, edccPlan, novPlan, projEdcc:pe, projNov:pn, projContacts:pc, projHours:ph,
+      hitEdcc:pe>=edccPlan, hitNov:pn>=novPlan};
+  }).sort((a,b)=>b.projEdcc-a.projEdcc);
+
+  const monthNames=["","январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"];
+  document.getElementById("fcInfo").textContent=`${monthNames[sp.M]} ${sp.Y}: прошло ${sp.elapsed} из ${sp.days} дн. · коэффициент ×${factor.toFixed(2)}`;
+
+  const hitE=rows.filter(r=>r.hitEdcc).length, hitN=rows.filter(r=>r.hitNov).length;
+  const projE=rows.reduce((a,r)=>a+r.projEdcc,0), projN=rows.reduce((a,r)=>a+r.projNov,0), projC=rows.reduce((a,r)=>a+r.projContacts,0);
+  const cards=[
+    ["Сотрудников в прогнозе",rows.length,""],
+    ["Выйдут на план eDCC",`${hitE} из ${rows.length}`,`${rows.length?Math.round(hitE/rows.length*100):0}%`],
+    ["Выйдут на план новинок",`${hitN} из ${rows.length}`,`${rows.length?Math.round(hitN/rows.length*100):0}%`],
+    ["Прогноз eDCC (сумма)",projE.toLocaleString("ru"),""],
+    ["Прогноз новинки (сумма)",projN.toLocaleString("ru"),""],
+    ["Прогноз контактов (сумма)",projC.toLocaleString("ru"),""]
+  ];
+  document.getElementById("fcKpis").innerHTML=cards.map(c=>`<div class="kpi"><div class="t">${c[0]}</div><div class="v">${c[1]}</div><div class="s">${c[2]}</div></div>`).join("");
+
+  const yes='<span class="pill g">выйдет</span>', no='<span class="pill b">не выйдет</span>';
+  let html="<thead><tr><th>Хостес</th><th>Coordinator</th><th>Долж.</th>"
+    +'<th class="num">Факт eDCC</th><th class="num">Прогноз eDCC</th><th class="num">План</th><th>Итог eDCC</th>'
+    +'<th class="num">Факт нов.</th><th class="num">Прогноз нов.</th><th class="num">План</th><th>Итог нов.</th>'
+    +'<th class="num">Прогноз конт.</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    html+=`<tr><td>${r.name}</td><td>${r.coord}</td><td>${r.pos}</td>`
+      +`<td class="num">${r.edccDone}</td><td class="num"><b>${r.projEdcc}</b></td><td class="num">${r.edccPlan}</td><td>${r.hitEdcc?yes:no}</td>`
+      +`<td class="num">${r.novelty}</td><td class="num"><b>${r.projNov}</b></td><td class="num">${r.novPlan}</td><td>${r.hitNov?yes:no}</td>`
+      +`<td class="num">${r.projContacts}</td></tr>`;
+  });
+  if(!rows.length) html+=`<tr><td colspan="12" style="text-align:center;color:var(--mut);padding:24px">Нет данных для прогноза</td></tr>`;
+  html+="</tbody>";
+  document.getElementById("fcTbl").innerHTML=html;
+}
+
 /* ===== Хитмап (Leaflet) ===== */
 let HMAP=null, HLAYER=null, HEAT_GRAD=null, HeatLayer=null;
 function heatGradient(){
@@ -1236,20 +1478,39 @@ function restoreEmp(nameKey){
 }
 function renderEmpList(){
   rebuildRoster();
-  const rows=EFF_ROSTER.slice().sort((a,b)=>a.coord.localeCompare(b.coord,"ru")||a.name.localeCompare(b.name,"ru"));
+  // наполнить фильтр координаторов (один раз / при изменении состава)
+  const cf=document.getElementById("empFilterCoord");
+  if(cf){ const cur=cf.value; const cs=[...new Set(EFF_ROSTER.map(r=>r.coord))].sort();
+    cf.innerHTML=`<option value="">Все координаторы</option>`+cs.map(c=>`<option${c===cur?" selected":""}>${c}</option>`).join(""); }
+  const q=norm(document.getElementById("empSearch")?.value||"");
+  const fc=document.getElementById("empFilterCoord")?.value||"";
+  const fp=document.getElementById("empFilterPos")?.value||"";
+  const showRem=document.getElementById("empShowRemoved")?.checked;
+
+  let rows=EFF_ROSTER.slice()
+    .filter(r=>(!fc||r.coord===fc) && (!fp||r.pos===fp) &&
+               (!q||norm(r.name).includes(q)||norm(r.coord).includes(q)))
+    .sort((a,b)=>a.coord.localeCompare(b.coord,"ru")||a.name.localeCompare(b.name,"ru"));
+
   let html="<thead><tr><th>ФИО</th><th>Координатор</th><th>Долж.</th><th>Город</th><th>Логин</th><th></th></tr></thead><tbody>";
   rows.forEach(r=>{const k=norm(r.name); const ce=(STORE.empAdd||[]).find(e=>norm(e.name)===k); const custom=!!ce;
     html+=`<tr><td>${r.name}${custom?' <span style="color:var(--acc2)">+</span>':''}</td><td>${r.coord}</td><td>${r.pos}</td><td>${r.city||""}</td>`
       +`<td style="color:var(--acc2)">${ce&&ce.login?ce.login:"—"}</td>`
       +`<td><button onclick="removeEmp('${k.replace(/'/g,"\\'")}')" class="dclose" style="width:26px;height:26px;font-size:14px" title="удалить">×</button></td></tr>`;
   });
-  // удалённые встроенные — с возможностью вернуть
-  (STORE.empRemove||[]).forEach(n=>{
-    html+=`<tr style="opacity:.55"><td>${n} <span style="color:var(--bad)">(удалён)</span></td><td colspan="4"></td>`
-      +`<td><button onclick="restoreEmp('${norm(n).replace(/'/g,"\\'")}')" class="dclose" style="width:auto;padding:0 8px;height:26px;font-size:12px">вернуть</button></td></tr>`;
-  });
+  // удалённые встроенные — показываем только по галочке и с учётом поиска
+  let remList=(STORE.empRemove||[]);
+  if(q) remList=remList.filter(n=>norm(n).includes(q));
+  if(showRem){
+    remList.forEach(n=>{
+      html+=`<tr style="opacity:.55"><td>${n} <span style="color:var(--bad)">(удалён)</span></td><td colspan="4"></td>`
+        +`<td><button onclick="restoreEmp('${norm(n).replace(/'/g,"\\'")}')" class="dclose" style="width:auto;padding:0 8px;height:26px;font-size:12px">вернуть</button></td></tr>`;
+    });
+  }
   html+="</tbody>";
   document.getElementById("empList").innerHTML=html;
+  const cnt=document.getElementById("empCount");
+  if(cnt) cnt.textContent=`Действующих: ${rows.length}${(STORE.empRemove||[]).length?` · удалённых: ${(STORE.empRemove||[]).length}`:""}`;
 }
 function renderDtags(){
   const T={hostes:"Хостес",hostes2:"Анкета (все успешны)",hbc:"ХБК",tgbot:"ТГ-бот",retraffic:"Ретрафик",tabel:"Табель"};
@@ -1258,15 +1519,20 @@ function renderDtags(){
 }
 async function handleFiles(files, opts){
   opts=opts||{};
-  const replace = document.getElementById("replaceMode")?.checked;
-  const cleared = new Set();
-  for(const f of files){ await ingest(f, replace?cleared:null, opts); }
-  await saveStore();
-  // отчёт о сопоставлении
-  const seen={}; CONTACTS().concat(STORE.hbc).forEach(r=>{seen[r.user]=1;});
-  const un=Object.keys(seen).filter(u=>!matchRoster(u));
-  if(un.length) logLine(`⚠ Не найдены в ростере (${un.length}): ${un.join(", ")} — учтены в группе «не распознан». Аналитик может добавить их в структуру.`,"wn");
-  renderDtags(); buildFilters(); render();
+  BUSY=true; lastSaveTs=Date.now();
+  logLine("Загрузка… не закрывайте вкладку","wn");
+  try{
+    // подтянуть свежую общую базу, чтобы заменять контакты, но сохранить чужие правки/сотрудников
+    if(SUPA_ON()){ try{ const d=await supaGet(); if(d){ const fresh=normalizeStore(d);
+      STORE.dayCorr=fresh.dayCorr; STORE.empAdd=fresh.empAdd; STORE.empRemove=fresh.empRemove; } }catch(e){} }
+    rebuildRoster();  // чтобы распознать в т.ч. добавленных вручную сотрудников
+    const replace = document.getElementById("replaceMode")?.checked;
+    const cleared = new Set();
+    for(const f of files){ await ingest(f, replace?cleared:null, opts); }
+    lastSaveTs=Date.now();
+    await saveStore();
+    renderDtags(); buildFilters(); render();
+  } finally { BUSY=false; lastSaveTs=Date.now(); }
 }
 function clearData(){
   if(!confirm("Удалить все загруженные данные? Ручные корректировки сохранятся и применятся снова после загрузки."))return;
