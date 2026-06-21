@@ -88,6 +88,10 @@ tr.day-row:hover{background:var(--panel2)}
 #dayMatrix .ch{font-size:9px;font-weight:500;color:rgba(255,255,255,.78);letter-spacing:.2px}
 #dayMatrix td.sumh{color:var(--acc2);font-weight:600}
 #dayMatrix tr:last-child td{border-top:2px solid var(--line);font-weight:700;background:var(--panel2)}
+#dayMatrix th.wk-grp{background:#1c2742;color:#cfe0ff;border-left:2px solid var(--acc);font-size:10px;letter-spacing:.3px}
+#dayMatrix td.wk-start,#dayMatrix th.wk-start{border-left:2px solid #3a4659}
+#dayMatrix td.wk-sub,#dayMatrix th.wk-sub{background:#141b28;border-left:1px dashed #3a4659;font-weight:700}
+#dayMatrix td.wk-sub .cv{font-size:13px}
 
 .wrap{padding:22px;max-width:1500px;margin:0 auto}
 .filters{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-bottom:20px}
@@ -371,6 +375,7 @@ small.note{color:var(--mut);font-size:11px}
       <div class="dbody">
         <canvas id="chDay"></canvas>
         <div class="sec-title">Команда по дням (строка — сотрудник, столбец — день)</div>
+        <small class="note" style="display:block;margin-bottom:6px">Деление по неделям (Пн–Вс). В колонках «Σнед» — недельный итог. Порог недели: <b style="color:#34d399">eDCC ≥ 90</b> и <b style="color:#34d399">часы ≥ 30</b> — иначе <b style="color:#f87171">штраф</b> (подсвечивается красным). Справа «Σ мес» — сумма за месяц.</small>
         <div class="tbar" style="margin-bottom:18px"><table id="dayMatrix"></table></div>
         <div class="sec-title">Итог по дням</div>
         <div class="tbar"><table id="dayTbl"></table></div>
@@ -408,7 +413,7 @@ const ROSTER = [
 {"coord":"Xasanov Ulugbek","name":"Бозоров Нурбек","pos":"HBC","city":"Tashkent"},{"coord":"Xasanov Ulugbek","name":"Талибжанов Шавкат","pos":"HBC","city":"Tashkent"},{"coord":"Xasanov Ulugbek","name":"Риксибоев Дильшод","pos":"HBC","city":"Tashkent"},{"coord":"Xasanov Ulugbek","name":"Ирсалиев Турлибек","pos":"HBC","city":"Tashkent"},{"coord":"Xasanov Ulugbek","name":"Каримов Шохрух","pos":"HBC","city":"Tashkent"},{"coord":"Xasanov Ulugbek","name":"Пулатов Рустам","pos":"HBC","city":"Tashkent"},{"coord":"Xasanov Ulugbek","name":"Усмонов Бурхон","pos":"HBC","city":"Tashkent"},{"coord":"Xasanov Ulugbek","name":"Махаматов Шерзод","pos":"HBC","city":"Tashkent"},{"coord":"Xasanov Ulugbek","name":"Рахматуллаев Джахонгир","pos":"HBC","city":"Tashkent"},
 {"coord":"Ziyayev Botir","name":"Куртумеров Димир","pos":"HST","city":"Tashkent"},{"coord":"Ziyayev Botir","name":"Данилов Руслан","pos":"HST","city":"Tashkent"},{"coord":"Ziyayev Botir","name":"Фаритова Эльвира","pos":"HST","city":"Tashkent"},{"coord":"Ziyayev Botir","name":"Каримов Рустам","pos":"HST","city":"Tashkent"},{"coord":"Ziyayev Botir","name":"Лишенкова Ангелина","pos":"HST","city":"Tashkent"},{"coord":"Ziyayev Botir","name":"Фаизов Арслан","pos":"HST","city":"Tashkent"}
 ];
-const NORM = { contactsPerDay:22, dayHoursCap:8, edccHST:460, edccHBC:800, noveltyHST:280, noveltyHBC:280, posThreshold:20 };
+const NORM = { contactsPerDay:22, dayHoursCap:8, edccHST:460, edccHBC:800, noveltyHST:280, noveltyHBC:280, posThreshold:20, weekEdcc:90, weekHours:30 };
 
 /* ========================================================================
    2. ДОСТУПЫ (логины/пароли зашиты в клиенте — демо-уровень)
@@ -636,6 +641,7 @@ async function ingest(file, cleared, opts){
       ts  :col(headers,"время_заполнения","время заполнения"),
       date:(()=>{const i=headers.findIndex(h=>{const n=norm(h);return n.includes("дата")&&!n.includes("мод");});return i;})(),
       gps :col(headers,"gps","geo","координат","coordinates"),
+      tt  :(()=>{const i=headers.findIndex(h=>{const n=norm(h);return n.includes("код")&&(n.includes("т.т")||n.includes("тт")||n.includes("т т"));});return i;})(),
       city:col(headers,"city","город")
     };
     const isNov=v=>{const s=norm(v); return s.includes("hudson")||s.includes("manhattan")||s.includes("хадсон")||s.includes("манхеттен");};
@@ -667,12 +673,13 @@ async function ingest(file, cleared, opts){
                || (c.smoke>=0 && isPmiBrand(r[headers[c.smoke]]))
                || (c.loyf>=0 && norm(r[headers[c.loyf]])==="лояльник");
       let reg = c.reg>=0 ? (r[headers[c.reg]]!=null && String(r[headers[c.reg]]).trim()!=="") : false;
-      let lat=null,lng=null;
-      if(c.gps>=0){ const g=String(r[headers[c.gps]]||"").split(/[,;]/);
+      let lat=null,lng=null,gpsRaw="";
+      if(c.gps>=0){ const raw=String(r[headers[c.gps]]||"").trim(); const g=raw.split(/[,;]/);
         if(g.length>=2){ const a=parseFloat(g[0]),b=parseFloat(g[1]);
-          if(!isNaN(a)&&!isNaN(b)&&a>35&&a<46&&b>55&&b<74){ lat=a; lng=b; } } } // в пределах Узбекистана
+          if(!isNaN(a)&&!isNaN(b)&&a>35&&a<46&&b>55&&b<74){ lat=a; lng=b; gpsRaw=raw; } } } // в пределах Узбекистана
+      const ttCode = c.tt>=0 ? String(r[headers[c.tt]]??"").trim() : "";
       STORE[type].push({id, user:r[headers[userI]], success, novelty, loyal, reg,
-              city:c.city>=0?r[headers[c.city]]:null, date:date||null, hour, lat, lng, ts:ts||""});
+              city:c.city>=0?r[headers[c.city]]:null, date:date||null, hour, lat, lng, gps:gpsRaw, tt:ttCode, ts:ts||""});
       added++;
     });
     const lbl = type==="hostes2" ? "Анкета (все успешны)" : "Хостес";
@@ -724,12 +731,13 @@ function buildTotals(){
   STORE.tabel.forEach(r=>{const m=matchRoster(r.user); if(!m)return; tabelHours[norm(m.name)]=(tabelHours[norm(m.name)]||0)+(r.hours||0);});
 
   const DC=STORE.dayCorr||{};
-  // ===== ACTIVE POS: первый, кто набрал 20 контактов на уникальной точке (за месяц) =====
-  const posMap={}; // "lat,lng" -> { empKey: [ts,...] }
+  // ===== ACTIVE POS: первый HST, набравший 20 УСПЕШНЫХ контактов на торговой точке (по «Код т.т.») =====
+  const posMap={}; // код т.т. -> { empKey: [ts успешных контактов] }
   CONTACTS().forEach(r=>{
-    if(r.lat==null||r.lng==null) return;
+    const pk = r.tt || r.gps;     // приоритет — код точки; если его нет, fallback на GPS
+    if(!pk) return;
+    if(!r.success) return;        // только успешные контакты
     const mm=matchRoster(r.user); const key=mm?norm(mm.name):norm(r.user);
-    const pk=r.lat.toFixed(4)+","+r.lng.toFixed(4);
     const e=posMap[pk]||(posMap[pk]={});
     (e[key]||(e[key]=[])).push(r.ts||((r.date||"")+" "+(r.hour!=null?String(r.hour).padStart(2,"0"):"00")));
   });
@@ -737,12 +745,13 @@ function buildTotals(){
   Object.values(posMap).forEach(emps=>{
     let bestKey=null,bestTs=null;
     Object.keys(emps).forEach(k=>{
-      const list=emps[k]; if(list.length>=NORM.posThreshold){
-        list.sort(); const t20=list[NORM.posThreshold-1];
-        if(bestTs===null||t20<bestTs){bestTs=t20;bestKey=k;}
+      const list=emps[k];
+      if(list.length>=NORM.posThreshold){           // этот HST лично набрал 20+ успешных тут
+        list.sort(); const t20=list[NORM.posThreshold-1]; // момент его 20-го успешного контакта
+        if(bestTs===null||t20<bestTs){bestTs=t20;bestKey=k;} // активирует тот, кто набрал 20 раньше всех
       }
     });
-    if(bestKey) activeCount[bestKey]=(activeCount[bestKey]||0)+1;
+    if(bestKey) activeCount[bestKey]=(activeCount[bestKey]||0)+1; // точка засчитывается один раз
   });
   Object.values(map).forEach(t=>{ t.activePos = activeCount[norm(t.name)]||0; });
   Object.keys(DC).forEach(kk=>{
@@ -1016,11 +1025,20 @@ function renderMatrix(){
   const DC=STORE.dayCorr||{};
   const rawHrs=(o)=>!o?0:Math.min(o.hrs&&o.hrs.size>0?o.hrs.size:o.c,NORM.dayHoursCap);
   const ck=(key,d)=>key+"|"+d;
-  // эффективные значения с учётом корректировок
   const effC=(key,d,o)=>{const c=DC[ck(key,d)]; return (c&&c.contacts!=null&&c.contacts!=="")?+c.contacts:(o?o.c:0);};
   const effH=(key,d,o)=>{const c=DC[ck(key,d)]; return (c&&c.hours!=null&&c.hours!=="")?+c.hours:rawHrs(o);};
   const isEd=(key,d,f)=>{const c=DC[ck(key,d)]; return c && c[f]!=null && c[f]!=="";};
   const val=(key,d,o)=> metric==="edcc"?(o?o.e:0) : metric==="novelty"?(o?o.n:0) : metric==="loyal"?(o?o.l:0) : metric==="hours"?effH(key,d,o) : effC(key,d,o);
+  // ===== недельное деление (Пн–Вс) =====
+  const mondayOf=iso=>{const d=new Date(iso+"T00:00:00");const wd=(d.getDay()+6)%7;d.setDate(d.getDate()-wd);return d.toISOString().slice(0,10);};
+  const ddmm=iso=>iso.slice(8,10)+"."+iso.slice(5,7);
+  const weeksMap={};
+  dayList.forEach(d=>{const wk=/^\d{4}-\d{2}-\d{2}$/.test(d)?mondayOf(d):"—"; (weeksMap[wk]||(weeksMap[wk]=[])).push(d);});
+  const weekKeys=Object.keys(weeksMap).sort();
+  const weeks=weekKeys.map((wk,i)=>{const dl=weeksMap[wk]; let range="";
+    if(wk!=="—"){const mon=wk; const sun=new Date(wk+"T00:00:00"); sun.setDate(sun.getDate()+6); range=ddmm(mon)+"–"+ddmm(sun.toISOString().slice(0,10));}
+    return {key:wk, days:dl, label: wk==="—"?"без даты":"Неделя "+(i+1), range};});
+
   let max=1; team.forEach(r=>{const key=norm(r.name); dayList.forEach(d=>{const v=val(key,d,(grid[key]||{})[d]); if(v>max)max=v;});});
   const short=d=>String(d).slice(8,10)||d;
   const heat=(v)=>{ const r=Math.min(1,v/max);
@@ -1029,29 +1047,63 @@ function renderMatrix(){
   const showH = metric!=="hours";
   const editable = dayEdit && (metric==="contacts"||metric==="hours");
   const esc=s=>String(s).replace(/"/g,"&quot;");
-  let html="<thead><tr><th>Сотрудник</th>"+dayList.map(d=>`<th class="num" title="${d}">${short(d)}</th>`).join("")
-    +'<th class="num">Σ</th><th class="num">Σ&nbsp;часы</th></tr></thead><tbody>';
+
+  // недельный подытог: контент ячейки + цвет по порогам (eDCC 90, часы 30)
+  const wkSubCell=(sumMetric,sumH)=>{
+    const hColor = sumH>=NORM.weekHours?"#34d399":"#f87171";
+    let bigColor="var(--txt)", big=sumMetric;
+    if(metric==="edcc")  bigColor = sumMetric>=NORM.weekEdcc?"#34d399":"#f87171";
+    if(metric==="hours"){ big=sumH; bigColor = sumH>=NORM.weekHours?"#34d399":"#f87171"; }
+    const second = metric==="hours" ? "" : `<div class="ch" style="color:${hColor}">${sumH}ч</div>`;
+    return `<td class="wk-sub"><div class="cv" style="color:${bigColor}">${big.toLocaleString("ru")}</div>${second}</td>`;
+  };
+
+  // ===== HEADER (2 ряда: недели / дни+Σнед) =====
+  let h1=`<tr><th rowspan="2">Сотрудник</th>`;
+  weeks.forEach(w=>{ h1+=`<th class="wk-grp" colspan="${w.days.length+1}">${w.label}${w.range?` · ${w.range}`:""}</th>`; });
+  h1+=`<th rowspan="2" class="num">Σ мес</th><th rowspan="2" class="num">Σ часы</th></tr>`;
+  let h2="<tr>";
+  weeks.forEach(w=>{ w.days.forEach((d,di)=>{ h2+=`<th class="num${di===0?' wk-start':''}" title="${d}">${short(d)}</th>`; }); h2+=`<th class="num wk-sub">Σнед</th>`; });
+  h2+="</tr>";
+  let html="<thead>"+h1+h2+"</thead><tbody>";
+
+  // ===== строки сотрудников =====
   team.forEach(r=>{
     const key=norm(r.name); const g=grid[key]||{}; let tot=0,totH=0;
-    html+=`<tr><td>${r.name}${r._unknown?" ⚠":""}</td>`+dayList.map(d=>{
-      const o=g[d]; const v=val(key,d,o); const h=effH(key,d,o); tot+=v; totH+=h;
-      if(editable){
-        const edited=isEd(key,d,metric)?' style="border-color:var(--acc2);color:var(--acc2)"':'';
-        return `<td style="padding:2px"><input type="number" value="${v||""}" placeholder="0"
-          data-k="${esc(key)}" data-d="${d}"
-          onchange="setDayCorr(this.dataset.k,this.dataset.d,'${metric}',this.value)"
-          style="width:46px;text-align:center;background:var(--panel2);border:1px solid var(--line);border-radius:6px;color:var(--txt);padding:4px 2px"${edited}></td>`;
-      }
-      if(!v && !(o)) return '<td class="zero">·</td>';
-      const cEdited=isEd(key,d,"contacts")||isEd(key,d,"hours");
-      return `<td class="heat" style="background:${heat(v)}"><div class="cv">${v}${cEdited?'<span style="color:#06283d">*</span>':''}</div>${showH?`<div class="ch">${h}ч</div>`:""}</td>`;
-    }).join("")+`<td class="num">${tot.toLocaleString("ru")}</td><td class="num sumh">${totH.toLocaleString("ru")}ч</td>`+"</tr>";
+    let row=`<tr><td>${r.name}</td>`;
+    weeks.forEach(w=>{
+      let wSum=0,wH=0;
+      w.days.forEach((d,di)=>{
+        const o=g[d]; const v=val(key,d,o); const hh=effH(key,d,o); tot+=v; totH+=hh; wSum+=v; wH+=hh;
+        if(editable){
+          const edited=isEd(key,d,metric)?' style="border-color:var(--acc2);color:var(--acc2)"':'';
+          row+=`<td class="${di===0?'wk-start':''}" style="padding:2px"><input type="number" value="${v||""}" placeholder="0"
+            data-k="${esc(key)}" data-d="${d}" onchange="setDayCorr(this.dataset.k,this.dataset.d,'${metric}',this.value)"
+            style="width:44px;text-align:center;background:var(--panel2);border:1px solid var(--line);border-radius:6px;color:var(--txt);padding:4px 2px"${edited}></td>`;
+        } else if(!v && !o){ row+=`<td class="zero${di===0?' wk-start':''}">·</td>`; }
+        else { const cEdited=isEd(key,d,"contacts")||isEd(key,d,"hours");
+          row+=`<td class="heat${di===0?' wk-start':''}" style="background:${heat(v)}"><div class="cv">${v}${cEdited?'<span style="color:#06283d">*</span>':''}</div>${showH?`<div class="ch">${hh}ч</div>`:""}</td>`; }
+      });
+      row+=wkSubCell(wSum,wH);
+    });
+    row+=`<td class="num">${tot.toLocaleString("ru")}</td><td class="num sumh">${totH.toLocaleString("ru")}ч</td></tr>`;
+    html+=row;
   });
-  const colTot=dayList.map(d=>team.reduce((a,r)=>a+val(norm(r.name),d,(grid[norm(r.name)]||{})[d]),0));
-  const colH  =dayList.map(d=>team.reduce((a,r)=>a+effH(norm(r.name),d,(grid[norm(r.name)]||{})[d]),0));
-  html+=`<tr><td>Итого</td>`+dayList.map((d,i)=>`<td>${colTot[i].toLocaleString("ru")}${showH?`<div class="ch" style="color:var(--mut)">${colH[i]}ч</div>`:""}</td>`).join("")
-    +`<td>${colTot.reduce((a,b)=>a+b,0).toLocaleString("ru")}</td><td class="sumh">${colH.reduce((a,b)=>a+b,0).toLocaleString("ru")}ч</td></tr>`;
-  html+="</tbody>";
+
+  // ===== строка ИТОГО =====
+  let foot=`<tr><td>Итого</td>`; let gTot=0,gH=0;
+  weeks.forEach(w=>{
+    let wSum=0,wH=0;
+    w.days.forEach((d,di)=>{
+      const cT=team.reduce((a,r)=>a+val(norm(r.name),d,(grid[norm(r.name)]||{})[d]),0);
+      const cH=team.reduce((a,r)=>a+effH(norm(r.name),d,(grid[norm(r.name)]||{})[d]),0);
+      wSum+=cT; wH+=cH; gTot+=cT; gH+=cH;
+      foot+=`<td class="${di===0?'wk-start':''}">${cT.toLocaleString("ru")}${showH?`<div class="ch" style="color:var(--mut)">${cH}ч</div>`:""}</td>`;
+    });
+    foot+=`<td class="wk-sub"><div class="cv">${(metric==="hours"?wH:wSum).toLocaleString("ru")}</div>${metric==="hours"?"":`<div class="ch" style="color:var(--mut)">${wH}ч</div>`}</td>`;
+  });
+  foot+=`<td>${gTot.toLocaleString("ru")}</td><td class="sumh">${gH.toLocaleString("ru")}ч</td></tr>`;
+  html+=foot+"</tbody>";
   if(!team.length||!dayList.length) html=`<tbody><tr><td style="text-align:center;color:var(--mut);padding:24px">Нет активности в выборке</td></tr></tbody>`;
   document.getElementById("dayMatrix").innerHTML=html;
 }
