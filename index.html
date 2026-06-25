@@ -4,8 +4,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
 :root{
@@ -53,7 +51,6 @@ header .spacer{flex:1}
 /* DAY DRILLDOWN MODAL */
 #dayModal,#empModal,#mapModal,#fcModal,#snapModal,#apModal{position:fixed;inset:0;background:rgba(6,9,15,.72);z-index:50;display:none;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto}
 #dayModal.open,#empModal.open,#mapModal.open,#fcModal.open,#snapModal.open,#apModal.open{display:flex}
-#heatmap .leaflet-tile{filter:none}
 
 /* QUICK ACCESS DRAWER */
 #drawerScrim{position:fixed;inset:0;background:rgba(6,9,15,.55);z-index:40;display:none}
@@ -195,7 +192,6 @@ small.note{color:var(--mut);font-size:11px}
     <button id="dayBtn" onclick="openDayView()">📅 По дням</button>
     <button id="fcBtn" onclick="openForecast()" style="background:#0ea5e9;border:0;color:#fff;padding:7px 14px;border-radius:8px;font-weight:600">📈 Прогноз</button>
     <button id="snapBtn" onclick="openSnap()" style="background:#10b981;border:0;color:#fff;padding:7px 14px;border-radius:8px;font-weight:600">📸 Сводка</button>
-    <button id="mapBtn" onclick="openMap()" style="background:#7c3aed;border:0;color:#fff;padding:7px 14px;border-radius:8px;font-weight:600">🗺 Хитмап</button>
     <button id="logout" onclick="logout()">Выйти</button>
   </header>
 
@@ -262,28 +258,6 @@ small.note{color:var(--mut);font-size:11px}
       </div>
       <div class="tbar"><table id="tbl"></table></div>
       <div class="empty" id="emptyMsg">Нет данных. Аналитик может загрузить выгрузки выше.</div>
-    </div>
-  </div>
-
-  <!-- ХИТМАП -->
-  <div id="mapModal" onclick="if(event.target===this)closeMap()">
-    <div class="dwin" style="width:min(1100px,100%)">
-      <div class="dhead">
-        <h3>Тепловая карта активности — Узбекистан</h3>
-        <span class="spacer"></span>
-        <select id="mapCoord" onchange="renderHeat()" style="padding:7px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--txt);max-width:180px"></select>
-        <select id="mapCity" onchange="renderHeat()" style="padding:7px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--txt);max-width:150px"></select>
-        <select id="mapMetric" onchange="renderHeat()" style="padding:7px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--txt)">
-          <option value="contacts">Контакты</option>
-          <option value="edcc">eDCC</option>
-          <option value="novelty">Новинки</option>
-        </select>
-        <button class="dclose" onclick="closeMap()">×</button>
-      </div>
-      <div class="dbody">
-        <div id="heatmap" style="height:68vh;min-height:420px;border-radius:10px;overflow:hidden"></div>
-        <small class="note" id="mapInfo" style="display:block;margin-top:8px;color:var(--mut)"></small>
-      </div>
     </div>
   </div>
 
@@ -355,6 +329,7 @@ small.note{color:var(--mut);font-size:11px}
         <h3>Active POS — детализация точек</h3>
         <span class="spacer"></span>
         <small class="note" id="apInfo" style="color:var(--mut)"></small>
+        <button onclick="exportActivePos()" style="background:var(--acc);color:#fff;border:0;padding:7px 12px;border-radius:8px;font-weight:600">⬇ Excel</button>
         <select id="apMode" onchange="renderActivePos()" style="padding:7px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--txt)">
           <option value="all">Все</option><option value="active">Только активные</option><option value="potential">Только потенциальные</option>
         </select>
@@ -1378,6 +1353,37 @@ function activePosDetail(){
   });
   return {active, potential};
 }
+function exportActivePos(){
+  const allowed=new Set(visibleRows().map(r=>norm(r.name)));
+  const meta=k=>{const r=EFF_ROSTER.find(x=>norm(x.name)===k); return r?{name:r.name,coord:r.coord,city:r.city}:{name:nameOfKey(k),coord:"—",city:""};};
+  const {active,potential}=activePosDetail();
+  const A=active.filter(x=>allowed.has(x.key)), P=potential.filter(x=>allowed.has(x.key));
+  // Лист 1 — точки по HST
+  const rows=[];
+  A.forEach(x=>{const m=meta(x.key); rows.push([m.coord,m.city,m.name,x.tt,x.name||"",x.cnt,"Активирована","—"]);});
+  P.forEach(x=>{const m=meta(x.key); rows.push([m.coord,m.city,m.name,x.tt,x.name||"",x.cnt,"Потенциальная",x.left]);});
+  rows.sort((a,b)=>String(a[0]).localeCompare(String(b[0]),"ru")||String(a[2]).localeCompare(String(b[2]),"ru")||(a[6]==="Активирована"?-1:1));
+  const aoa1=[["Координатор","Город","HST","Код т.т.","Название т.т.","Успешных у HST","Статус","Осталось до 20"],...rows];
+  const ws1=XLSX.utils.aoa_to_sheet(aoa1);
+  ws1["!cols"]=[{wch:22},{wch:12},{wch:24},{wch:12},{wch:30},{wch:15},{wch:15},{wch:14}];
+  ws1["!autofilter"]={ref:`A1:H${aoa1.length}`};
+  ws1["!freeze"]={xSplit:0,ySplit:1};
+  // Лист 2 — сводка по HST
+  const ac={},po={},mm={};
+  A.forEach(x=>{ac[x.key]=(ac[x.key]||0)+1; mm[x.key]=meta(x.key);});
+  P.forEach(x=>{po[x.key]=(po[x.key]||0)+1; mm[x.key]=mm[x.key]||meta(x.key);});
+  const keys=Object.keys(mm).sort((a,b)=>mm[a].coord.localeCompare(mm[b].coord,"ru")||mm[a].name.localeCompare(mm[b].name,"ru"));
+  const sum=[["Координатор","Город","HST","Активных точек","Потенциальных точек"]];
+  keys.forEach(k=>sum.push([mm[k].coord,mm[k].city,mm[k].name,ac[k]||0,po[k]||0]));
+  sum.push(["ИТОГО","","",A.length,P.length]);
+  const ws2=XLSX.utils.aoa_to_sheet(sum);
+  ws2["!cols"]=[{wch:22},{wch:12},{wch:24},{wch:15},{wch:18}];
+  ws2["!autofilter"]={ref:`A1:E${sum.length}`};
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws1,"Точки по HST");
+  XLSX.utils.book_append_sheet(wb,ws2,"Сводка по HST");
+  XLSX.writeFile(wb,"Точки_по_HST.xlsx");
+}
 function openActivePos(){ document.getElementById("apModal").classList.add("open"); renderActivePos(); }
 function closeActivePos(){ document.getElementById("apModal").classList.remove("open"); }
 function renderActivePos(){
@@ -1456,126 +1462,6 @@ function renderForecast(){
   document.getElementById("fcTbl").innerHTML=html;
 }
 
-/* ===== Хитмап (Leaflet) ===== */
-let HMAP=null, HLAYER=null, HEAT_GRAD=null, HeatLayer=null;
-function heatGradient(){
-  if(HEAT_GRAD) return HEAT_GRAD;
-  const c=document.createElement("canvas"); c.width=1; c.height=256;
-  const g=c.getContext("2d"); const gr=g.createLinearGradient(0,0,0,256);
-  gr.addColorStop(0.0,"#1d4ed8"); gr.addColorStop(0.35,"#22d3ee");
-  gr.addColorStop(0.55,"#34d399"); gr.addColorStop(0.78,"#fbbf24"); gr.addColorStop(1.0,"#ef4444");
-  g.fillStyle=gr; g.fillRect(0,0,1,256);
-  HEAT_GRAD=g.getImageData(0,0,1,256).data; return HEAT_GRAD;
-}
-function defineHeatLayer(){
-  if(HeatLayer||typeof L==="undefined") return;
-  HeatLayer=L.Layer.extend({
-    initialize:function(pts,opts){ this._pts=pts||[]; this._r=(opts&&opts.radius)||30; },
-    setData:function(pts){ this._pts=pts||[]; if(this._map) this._redraw(); return this; },
-    onAdd:function(map){
-      this._map=map;
-      const cv=this._canvas=L.DomUtil.create("canvas","leaflet-zoom-hide");
-      cv.style.position="absolute"; cv.style.pointerEvents="none";
-      map.getPanes().overlayPane.appendChild(cv);
-      map.on("moveend",this._redraw,this);
-      map.on("zoomend",this._redraw,this);
-      map.on("resize",this._redraw,this);
-      map.on("viewreset",this._redraw,this);
-      if(map.options.zoomAnimation && L.Browser.any3d) map.on("zoomanim",this._zoomAnim,this);
-      this._redraw();
-    },
-    onRemove:function(map){
-      map.getPanes().overlayPane.removeChild(this._canvas);
-      map.off("moveend",this._redraw,this); map.off("zoomend",this._redraw,this);
-      map.off("resize",this._redraw,this); map.off("viewreset",this._redraw,this);
-      map.off("zoomanim",this._zoomAnim,this);
-    },
-    _zoomAnim:function(e){
-      const scale=this._map.getZoomScale(e.zoom),
-            off=this._map._latLngBoundsToNewLayerBounds(this._map.getBounds(),e.zoom,e.center).min;
-      if(L.DomUtil.setTransform) L.DomUtil.setTransform(this._canvas,off,scale);
-    },
-    _redraw:function(){
-      if(!this._map) return;
-      const size=this._map.getSize(), cv=this._canvas;
-      cv.width=size.x; cv.height=size.y;
-      L.DomUtil.setPosition(cv,this._map.containerPointToLayerPoint([0,0]));
-      if(L.DomUtil.setTransform) L.DomUtil.setTransform(cv,null,1);
-      const ctx=cv.getContext("2d"); ctx.clearRect(0,0,size.x,size.y);
-      const r=this._r;
-      // кисть (радиальный градиент в альфу)
-      const br=document.createElement("canvas"); br.width=br.height=r*2;
-      const bc=br.getContext("2d"); const rg=bc.createRadialGradient(r,r,0,r,r,r);
-      rg.addColorStop(0,"rgba(0,0,0,1)"); rg.addColorStop(1,"rgba(0,0,0,0)");
-      bc.fillStyle=rg; bc.fillRect(0,0,r*2,r*2);
-      let max=1; this._pts.forEach(p=>{ if(p[2]>max)max=p[2]; });
-      const b=this._map.getBounds().pad(0.3);
-      this._pts.forEach(p=>{
-        if(!b.contains([p[0],p[1]]))return;
-        const pt=this._map.latLngToContainerPoint([p[0],p[1]]);
-        ctx.globalAlpha=Math.max(0.12,Math.min(1,p[2]/max));
-        ctx.drawImage(br,pt.x-r,pt.y-r);
-      });
-      ctx.globalAlpha=1;
-      // раскраска по альфе через градиент
-      const img=ctx.getImageData(0,0,size.x,size.y), d=img.data, G=heatGradient();
-      for(let i=0;i<d.length;i+=4){ const a=d[i+3]; if(a){ const o=a*4;
-        d[i]=G[o]; d[i+1]=G[o+1]; d[i+2]=G[o+2]; d[i+3]=Math.min(235,a+30); } }
-      ctx.putImageData(img,0,0);
-    }
-  });
-}
-function openMap(){
-  document.getElementById("mapModal").classList.add("open");
-  buildMapFilters();
-  setTimeout(()=>{ initMap(); renderHeat(); }, 60);
-}
-function closeMap(){ document.getElementById("mapModal").classList.remove("open"); }
-function buildMapFilters(){
-  const rows=visibleRows();
-  let coords=[...new Set(rows.map(r=>r.coord))].sort();
-  const cities=[...new Set(rows.map(r=>r.city))].filter(Boolean).sort();
-  document.getElementById("mapCoord").innerHTML=`<option value="">Coordinator: все</option>`+coords.map(x=>`<option>${x}</option>`).join("");
-  document.getElementById("mapCity").innerHTML=`<option value="">Регион: все</option>`+cities.map(x=>`<option>${x}</option>`).join("");
-}
-function initMap(){
-  if(typeof L==="undefined"){ document.getElementById("mapInfo").textContent="Карта недоступна: нет соединения для загрузки тайлов."; return; }
-  defineHeatLayer();
-  if(!HMAP){
-    HMAP=L.map("heatmap",{scrollWheelZoom:true}).setView([41.3,64.5],6);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-      {maxZoom:18, attribution:"© OpenStreetMap"}).addTo(HMAP);
-  }
-  HMAP.invalidateSize();
-}
-function renderHeat(){
-  if(!HMAP) return;
-  const fCoord=document.getElementById("mapCoord").value;
-  const fCity =document.getElementById("mapCity").value;
-  const metric=document.getElementById("mapMetric").value;
-  const allowed=new Set(visibleRows()
-    .filter(r=>(!fCoord||r.coord===fCoord)&&(!fCity||r.city===fCity))
-    .map(r=>norm(r.name)));
-  const agg={};
-  CONTACTS().forEach(r=>{
-    if(r.lat==null||r.lng==null)return;
-    const m=matchRoster(r.user); const key=m?norm(m.name):norm(r.user);
-    if(!allowed.has(key))return;
-    if(fCity && r.city && r.city!==fCity) return;
-    let w = metric==="edcc" ? (r.success?1:0) : metric==="novelty" ? (r.novelty?1:0) : 1;
-    if(!w) return;
-    const k=r.lat.toFixed(4)+","+r.lng.toFixed(4);
-    agg[k]=(agg[k]||0)+w;
-  });
-  const pts=Object.keys(agg).map(k=>{const [a,b]=k.split(",").map(Number);return [a,b,agg[k]];});
-  let maxC=1; pts.forEach(p=>{if(p[2]>maxC)maxC=p[2];});
-  const info=document.getElementById("mapInfo");
-  if(!HLAYER && HeatLayer){ HLAYER=new HeatLayer(pts,{radius:30}); HLAYER.addTo(HMAP); }
-  else if(HLAYER){ HLAYER.setData(pts); }
-  if(!pts.length){ info.textContent="Нет GPS-координат под выбранные фильтры."; return; }
-  try{ const bb=L.latLngBounds(pts.map(p=>[p[0],p[1]])); HMAP.fitBounds(bb.pad(0.2)); }catch(e){}
-  info.textContent=`Точек: ${pts.length} · ${metric==="contacts"?"контактов":metric==="edcc"?"eDCC":"новинок"}: ${pts.reduce((a,p)=>a+p[2],0)} · макс в точке: ${maxC}`;
-}
 
 /* ===== Сотрудники: добавить / удалить ===== */function openEmp(){
   if(SESSION.role!=="analyst")return;
